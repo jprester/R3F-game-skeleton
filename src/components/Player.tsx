@@ -1,8 +1,12 @@
-import { useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
-import { RigidBody, CapsuleCollider, RapierRigidBody } from '@react-three/rapier';
-import { useKeyboardControls } from '@react-three/drei';
-import { Vector3 } from 'three';
+import { useRef } from "react";
+import { useFrame } from "@react-three/fiber";
+import {
+  RigidBody,
+  CapsuleCollider,
+  RapierRigidBody,
+} from "@react-three/rapier";
+import { useKeyboardControls } from "@react-three/drei";
+import { Vector3 } from "three";
 
 interface PlayerProps {
   position?: [number, number, number];
@@ -10,12 +14,12 @@ interface PlayerProps {
 
 // Movement settings
 const MOVE_SPEED = 5;
-const JUMP_FORCE = 8;
+const JUMP_FORCE = 3;
 
 export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   const rigidBodyRef = useRef<RapierRigidBody>(null);
   const isOnGround = useRef(true);
-  
+
   // Rotation state (not using React state to avoid re-renders)
   const rotation = useRef({ x: 0, y: 0 });
   const isPointerLocked = useRef(false);
@@ -29,20 +33,20 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   };
 
   // Set up pointer lock listeners
-  if (typeof window !== 'undefined') {
-    document.addEventListener('click', handleCanvasClick);
-    
-    document.addEventListener('pointerlockchange', () => {
+  if (typeof window !== "undefined") {
+    document.addEventListener("click", handleCanvasClick);
+
+    document.addEventListener("pointerlockchange", () => {
       isPointerLocked.current = document.pointerLockElement !== null;
     });
 
-    document.addEventListener('mousemove', (event) => {
+    document.addEventListener("mousemove", (event) => {
       if (!isPointerLocked.current) return;
-      
+
       const sensitivity = 0.002;
       rotation.current.y -= event.movementX * sensitivity;
       rotation.current.x -= event.movementY * sensitivity;
-      
+
       // Clamp vertical rotation
       rotation.current.x = Math.max(
         -Math.PI / 2 + 0.1,
@@ -85,7 +89,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
 
     // Jump logic
     const position = rigidBodyRef.current.translation();
-    
+
     // Simple ground check (player starts at y ~= 1 when on floor due to capsule)
     if (position.y < 1.1) {
       isOnGround.current = true;
@@ -101,7 +105,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
 
     // Update camera position and rotation
     state.camera.position.set(position.x, position.y + 0.5, position.z);
-    state.camera.rotation.order = 'YXZ';
+    state.camera.rotation.order = "YXZ";
     state.camera.rotation.y = rotation.current.y;
     state.camera.rotation.x = rotation.current.x;
   });
@@ -113,8 +117,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
       enabledRotations={[false, false, false]} // Prevent tumbling
       linearDamping={0.5}
       mass={1}
-      colliders={false}
-    >
+      colliders={false}>
       {/* Capsule collider for player body */}
       <CapsuleCollider args={[0.35, 0.3]} />
     </RigidBody>
