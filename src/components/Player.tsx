@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
   RigidBody,
@@ -24,23 +24,25 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   const rotation = useRef({ x: 0, y: 0 });
   const isPointerLocked = useRef(false);
 
+  // Reusable Vector3 instances to avoid per-frame allocation
+  const moveDirection = useRef(new Vector3());
+  const upAxis = useRef(new Vector3(0, 1, 0));
+
   // Get keyboard state
   const [, getKeys] = useKeyboardControls();
 
-  // Handle pointer lock
-  const handleCanvasClick = () => {
-    document.body.requestPointerLock();
-  };
+  // Set up pointer lock listeners with proper cleanup
+  useEffect(() => {
+    // Handle pointer lock
+    const handleCanvasClick = () => {
+      document.body.requestPointerLock();
+    };
 
-  // Set up pointer lock listeners
-  if (typeof window !== "undefined") {
-    document.addEventListener("click", handleCanvasClick);
-
-    document.addEventListener("pointerlockchange", () => {
+    const handlePointerLockChange = () => {
       isPointerLocked.current = document.pointerLockElement !== null;
-    });
+    };
 
-    document.addEventListener("mousemove", (event) => {
+    const handleMouseMove = (event: MouseEvent) => {
       if (!isPointerLocked.current) return;
 
       const sensitivity = 0.002;
@@ -52,8 +54,20 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
         -Math.PI / 2 + 0.1,
         Math.min(Math.PI / 2 - 0.1, rotation.current.x)
       );
-    });
-  }
+    };
+
+    // Add event listeners
+    document.addEventListener("click", handleCanvasClick);
+    document.addEventListener("pointerlockchange", handlePointerLockChange);
+    document.addEventListener("mousemove", handleMouseMove);
+
+    // Cleanup function
+    return () => {
+      document.removeEventListener("click", handleCanvasClick);
+      document.removeEventListener("pointerlockchange", handlePointerLockChange);
+      document.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, []);
 
   useFrame((state) => {
     if (!rigidBodyRef.current) return;
@@ -64,25 +78,25 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
     const velocity = rigidBodyRef.current.linvel();
 
     // Calculate movement direction based on camera rotation
-    const moveDirection = new Vector3();
+    const direction = moveDirection.current.set(0, 0, 0);
 
-    if (forward) moveDirection.z -= 1;
-    if (backward) moveDirection.z += 1;
-    if (left) moveDirection.x -= 1;
-    if (right) moveDirection.x += 1;
+    if (forward) direction.z -= 1;
+    if (backward) direction.z += 1;
+    if (left) direction.x -= 1;
+    if (right) direction.x += 1;
 
     // Normalize and rotate by camera Y rotation
-    if (moveDirection.length() > 0) {
-      moveDirection.normalize();
-      moveDirection.applyAxisAngle(new Vector3(0, 1, 0), rotation.current.y);
+    if (direction.length() > 0) {
+      direction.normalize();
+      direction.applyAxisAngle(upAxis.current, rotation.current.y);
     }
 
     // Apply horizontal movement
     rigidBodyRef.current.setLinvel(
       {
-        x: moveDirection.x * MOVE_SPEED,
+        x: direction.x * MOVE_SPEED,
         y: velocity.y, // Preserve vertical velocity
-        z: moveDirection.z * MOVE_SPEED,
+        z: direction.z * MOVE_SPEED,
       },
       true
     );

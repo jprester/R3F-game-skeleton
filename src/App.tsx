@@ -19,7 +19,7 @@ export default function App() {
       <KeyboardControls map={keyboardMap}>
         <Canvas
           shadows
-          camera={{ fov: 60, near: 0.1, far: 1000 }}
+          camera={{ fov: 60, near: 0.1, far: 30 }}
           style={{ background: "#1a1a2e" }}>
           <Physics gravity={[0, -20, 0]} debug={false}>
             <Scene />

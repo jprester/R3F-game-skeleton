@@ -1,6 +1,5 @@
 import { RigidBody } from "@react-three/rapier";
-import { useTexture, useGLTF } from "@react-three/drei";
-import { RepeatWrapping } from "three";
+import { useModels } from "./ModelProvider";
 
 // Desk component using GLB model
 function Desk({
@@ -10,7 +9,7 @@ function Desk({
   position: [number, number, number];
   rotation?: number;
 }) {
-  const { scene } = useGLTF("/models/desk/office_table_2.glb");
+  const { deskScene } = useModels();
 
   return (
     <RigidBody
@@ -18,7 +17,7 @@ function Desk({
       position={position}
       rotation={[0, rotation, 0]}
       colliders="cuboid">
-      <primitive object={scene.clone()} scale={1} castShadow receiveShadow />
+      <primitive object={deskScene.clone()} scale={1} castShadow receiveShadow />
     </RigidBody>
   );
 }
@@ -31,7 +30,7 @@ function Chair({
   position: [number, number, number];
   rotation?: number;
 }) {
-  const { scene } = useGLTF("/models/chair/conference_chair.glb");
+  const { chairScene } = useModels();
 
   return (
     <RigidBody
@@ -39,7 +38,7 @@ function Chair({
       position={position}
       rotation={[0, rotation, 0]}
       colliders="cuboid">
-      <primitive object={scene.clone()} scale={1} castShadow receiveShadow />
+      <primitive object={chairScene.clone()} scale={1} castShadow receiveShadow />
     </RigidBody>
   );
 }
@@ -67,56 +66,56 @@ function Chair({
 // }
 
 // Tall pillar/column
-function Pillar({ position }: { position: [number, number, number] }) {
-  return (
-    <RigidBody type="fixed" position={position} colliders="cuboid">
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[0.5, 3, 0.5]} />
-        <meshStandardMaterial color="#696969" />
-      </mesh>
-    </RigidBody>
-  );
-}
+// function Pillar({ position }: { position: [number, number, number] }) {
+//   return (
+//     <RigidBody type="fixed" position={position} colliders="cuboid">
+//       <mesh castShadow receiveShadow>
+//         <boxGeometry args={[0.5, 3, 0.5]} />
+//         <meshStandardMaterial color="#696969" />
+//       </mesh>
+//     </RigidBody>
+//   );
+// }
 
 // Sphere obstacle (uses hull collider)
-function Sphere({ position }: { position: [number, number, number] }) {
-  return (
-    <RigidBody type="fixed" position={position} colliders="ball">
-      <mesh castShadow receiveShadow>
-        <sphereGeometry args={[0.4, 32, 32]} />
-        <meshStandardMaterial color="#4169e1" />
-      </mesh>
-    </RigidBody>
-  );
-}
+// function Sphere({ position }: { position: [number, number, number] }) {
+//   return (
+//     <RigidBody type="fixed" position={position} colliders="ball">
+//       <mesh castShadow receiveShadow>
+//         <sphereGeometry args={[0.4, 32, 32]} />
+//         <meshStandardMaterial color="#4169e1" />
+//       </mesh>
+//     </RigidBody>
+//   );
+// }
 
 // Statue component using GLB model
-function Statue({
-  position,
-  rotation = 0,
-  scale = 1,
-}: {
-  position: [number, number, number];
-  rotation?: number;
-  scale?: number;
-}) {
-  const { scene } = useGLTF("/models/statue/garden_statue.glb");
-
-  return (
-    <RigidBody
-      type="fixed"
-      position={position}
-      rotation={[0, rotation, 0]}
-      colliders="cuboid">
-      <primitive
-        object={scene.clone()}
-        scale={scale}
-        castShadow
-        receiveShadow
-      />
-    </RigidBody>
-  );
-}
+// function Statue({
+//   position,
+//   rotation = 0,
+//   scale = 1,
+// }: {
+//   position: [number, number, number];
+//   rotation?: number;
+//   scale?: number;
+// }) {
+//   const { scene } = useGLTF("/models/statue/garden_statue.glb");
+//
+//   return (
+//     <RigidBody
+//       type="fixed"
+//       position={position}
+//       rotation={[0, rotation, 0]}
+//       colliders="cuboid">
+//       <primitive
+//         object={scene.clone()}
+//         scale={scale}
+//         castShadow
+//         receiveShadow
+//       />
+//     </RigidBody>
+//   );
+// }
 
 export default function Furniture() {
   return (
@@ -152,8 +151,3 @@ export default function Furniture() {
     </group>
   );
 }
-
-// Preload models
-useGLTF.preload("/models/desk/office_table_2.glb");
-useGLTF.preload("/models/chair/conference_chair.glb");
-// useGLTF.preload("/models/statue/garden_statue.glb");
