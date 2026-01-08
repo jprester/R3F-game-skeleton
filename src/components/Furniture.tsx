@@ -45,26 +45,26 @@ function Chair({
 }
 
 // Decorative box/crate
-function Crate({ position }: { position: [number, number, number] }) {
-  const woodTextures = useTexture({
-    map: "/textures/wood/Wood094_2K-JPG_Color.jpg",
-    normalMap: "/textures/wood/Wood094_2K-JPG_NormalGL.jpg",
-    roughnessMap: "/textures/wood/Wood094_2K-JPG_Roughness.jpg",
-  });
+// function Crate({ position }: { position: [number, number, number] }) {
+//   const woodTextures = useTexture({
+//     map: "/textures/wood/Wood094_2K-JPG_Color.jpg",
+//     normalMap: "/textures/wood/Wood094_2K-JPG_NormalGL.jpg",
+//     roughnessMap: "/textures/wood/Wood094_2K-JPG_Roughness.jpg",
+//   });
 
-  Object.values(woodTextures).forEach((texture) => {
-    texture.wrapS = texture.wrapT = RepeatWrapping;
-  });
+//   Object.values(woodTextures).forEach((texture) => {
+//     texture.wrapS = texture.wrapT = RepeatWrapping;
+//   });
 
-  return (
-    <RigidBody type="fixed" position={position} colliders="cuboid">
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[0.6, 0.6, 0.6]} />
-        <meshStandardMaterial {...woodTextures} />
-      </mesh>
-    </RigidBody>
-  );
-}
+//   return (
+//     <RigidBody type="fixed" position={position} colliders="cuboid">
+//       <mesh castShadow receiveShadow>
+//         <boxGeometry args={[0.6, 0.6, 0.6]} />
+//         <meshStandardMaterial {...woodTextures} />
+//       </mesh>
+//     </RigidBody>
+//   );
+// }
 
 // Tall pillar/column
 function Pillar({ position }: { position: [number, number, number] }) {
@@ -90,6 +90,34 @@ function Sphere({ position }: { position: [number, number, number] }) {
   );
 }
 
+// Statue component using GLB model
+function Statue({
+  position,
+  rotation = 0,
+  scale = 1,
+}: {
+  position: [number, number, number];
+  rotation?: number;
+  scale?: number;
+}) {
+  const { scene } = useGLTF("/models/statue/garden_statue.glb");
+
+  return (
+    <RigidBody
+      type="fixed"
+      position={position}
+      rotation={[0, rotation, 0]}
+      colliders="cuboid">
+      <primitive
+        object={scene.clone()}
+        scale={scale}
+        castShadow
+        receiveShadow
+      />
+    </RigidBody>
+  );
+}
+
 export default function Furniture() {
   return (
     <group>
@@ -103,13 +131,13 @@ export default function Furniture() {
       <Chair position={[-1.2, 0, 0]} rotation={-Math.PI / 2} />
 
       {/* Corner furniture */}
-      <Desk position={[-4, 0, -4]} />
-      <Chair position={[-4, 0, -2.8]} rotation={Math.PI} />
+      <Desk position={[-3, 0, -2]} />
+      <Chair position={[-3, 0, -1]} rotation={Math.PI} />
 
       {/* Crates in corner */}
-      <Crate position={[4, 0.3, -4]} />
+      {/* <Crate position={[4, 0.3, -4]} />
       <Crate position={[4.5, 0.3, -4.5]} />
-      <Crate position={[4.2, 0.9, -4.2]} />
+      <Crate position={[4.2, 0.9, -4.2]} /> */}
 
       {/* Pillars */}
       {/* <Pillar position={[3, 1.5, 3]} />
@@ -118,6 +146,9 @@ export default function Furniture() {
       {/* Decorative spheres */}
       {/* <Sphere position={[-4, 0.4, 3]} />
       <Sphere position={[4, 0.4, 0]} /> */}
+
+      {/* Statue */}
+      {/* <Statue position={[2, -0.2, -1]} rotation={-Math.PI / 4} /> */}
     </group>
   );
 }
@@ -125,3 +156,4 @@ export default function Furniture() {
 // Preload models
 useGLTF.preload("/models/desk/office_table_2.glb");
 useGLTF.preload("/models/chair/conference_chair.glb");
+// useGLTF.preload("/models/statue/garden_statue.glb");

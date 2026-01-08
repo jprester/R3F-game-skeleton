@@ -3,8 +3,8 @@ import { useTexture } from "@react-three/drei";
 import { RepeatWrapping } from "three";
 
 // Room dimensions
-const ROOM_WIDTH = 12;
-const ROOM_DEPTH = 12;
+const ROOM_WIDTH = 10;
+const ROOM_DEPTH = 10;
 const ROOM_HEIGHT = 4;
 const WALL_THICKNESS = 0.3;
 
@@ -56,6 +56,13 @@ export default function Room() {
     texture.offset.set(0.7, 0.7);
   });
 
+  // Load painting texture
+  const paintingTextures = useTexture({
+    map: "/textures/painting/Painting001_2K-JPG_Color.jpg",
+    normalMap: "/textures/painting/Painting001_2K-JPG_NormalGL.jpg",
+    roughnessMap: "/textures/painting/Painting001_2K-JPG_Roughness.jpg",
+  });
+
   return (
     <group>
       {/* Floor */}
@@ -93,6 +100,14 @@ export default function Room() {
           <meshStandardMaterial {...wallTextures} displacementScale={0.02} />
         </mesh>
       </RigidBody>
+
+      {/* Painting on back wall */}
+      <mesh
+        position={[0, 2.2, -ROOM_DEPTH / 2 + WALL_THICKNESS / 2 + 0.01]}
+        receiveShadow>
+        <planeGeometry args={[2, 1.5]} />
+        <meshStandardMaterial {...paintingTextures} />
+      </mesh>
 
       {/* Front wall */}
       <RigidBody type="fixed" colliders="cuboid">
