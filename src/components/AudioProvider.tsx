@@ -17,8 +17,6 @@ const FOOTSTEP_SOUNDS = [
 
 // Ambient sound files
 const AMBIENT_SOUNDS = {
-  electricHum:
-    "/sounds/ambient/422645__trullilulli__sfx-ambiance-electrical-hum.wav",
   ventilator:
     "/sounds/ambient/646564__garuda1982__small-ventilator-raspy-hum-geofon-contactmic.mp3",
 };
