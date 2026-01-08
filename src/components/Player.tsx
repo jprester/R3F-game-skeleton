@@ -7,6 +7,7 @@ import {
 } from "@react-three/rapier";
 import { useKeyboardControls } from "@react-three/drei";
 import { Vector3 } from "three";
+import { useAudio } from "./AudioProvider";
 
 interface PlayerProps {
   position?: [number, number, number];
@@ -15,6 +16,7 @@ interface PlayerProps {
 // Movement settings
 const MOVE_SPEED = 5;
 const JUMP_FORCE = 3;
+const FOOTSTEP_INTERVAL = 0.4; // seconds between footstep sounds
 
 export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   const rigidBodyRef = useRef<RapierRigidBody>(null);
@@ -23,6 +25,11 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   // Rotation state (not using React state to avoid re-renders)
   const rotation = useRef({ x: 0, y: 0 });
   const isPointerLocked = useRef(false);
+
+  // Audio
+  const { playFootstep, stopFootsteps } = useAudio();
+  const lastFootstepTime = useRef(0);
+  const wasMoving = useRef(false);
 
   // Reusable Vector3 instances to avoid per-frame allocation
   const moveDirection = useRef(new Vector3());
@@ -64,7 +71,10 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
     // Cleanup function
     return () => {
       document.removeEventListener("click", handleCanvasClick);
-      document.removeEventListener("pointerlockchange", handlePointerLockChange);
+      document.removeEventListener(
+        "pointerlockchange",
+        handlePointerLockChange
+      );
       document.removeEventListener("mousemove", handleMouseMove);
     };
   }, []);
@@ -100,6 +110,22 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
       },
       true
     );
+
+    // Footstep sounds - play when moving on ground
+    const isMoving = direction.length() > 0;
+    const currentTime = state.clock.getElapsedTime();
+
+    if (isMoving && isOnGround.current) {
+      if (currentTime - lastFootstepTime.current > FOOTSTEP_INTERVAL) {
+        playFootstep();
+        lastFootstepTime.current = currentTime;
+      }
+    } else if (wasMoving.current && !isMoving) {
+      // Stop footstep sounds when player stops moving
+      stopFootsteps();
+    }
+
+    wasMoving.current = isMoving;
 
     // Jump logic
     const position = rigidBodyRef.current.translation();

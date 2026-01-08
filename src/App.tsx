@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { KeyboardControls } from "@react-three/drei";
@@ -14,6 +15,18 @@ const keyboardMap = [
 ];
 
 export default function App() {
+  const [isMuted, setIsMuted] = useState(false);
+  const [masterVolume, setMasterVolume] = useState(0.5);
+
+  const toggleMute = useCallback(() => {
+    setIsMuted((prev) => !prev);
+  }, []);
+
+  const handleVolumeChange = useCallback((volume: number) => {
+    setMasterVolume(volume);
+    if (volume > 0) setIsMuted(false);
+  }, []);
+
   return (
     <>
       <KeyboardControls map={keyboardMap}>
@@ -22,11 +35,16 @@ export default function App() {
           camera={{ fov: 60, near: 0.1, far: 30 }}
           style={{ background: "#1a1a2e" }}>
           <Physics gravity={[0, -20, 0]} debug={false}>
-            <Scene />
+            <Scene isMuted={isMuted} masterVolume={masterVolume} />
           </Physics>
         </Canvas>
       </KeyboardControls>
-      <UI />
+      <UI
+        isMuted={isMuted}
+        masterVolume={masterVolume}
+        onToggleMute={toggleMute}
+        onVolumeChange={handleVolumeChange}
+      />
     </>
   );
 }
