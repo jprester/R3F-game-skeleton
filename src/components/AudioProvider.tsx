@@ -76,7 +76,7 @@ export function AudioProvider({
           audioLoader.load(url, (buffer) => {
             if (mounted) {
               sound.setBuffer(buffer);
-              sound.setVolume(0.3);
+              sound.setVolume(0.4);
               resolve(sound);
             }
           });
@@ -93,7 +93,7 @@ export function AudioProvider({
               sound.setBuffer(buffer);
               sound.setLoop(true);
               // Electric hum quieter, ventilator slightly louder
-              sound.setVolume(index === 0 ? 0.15 : 0.1);
+              sound.setVolume(index === 0 ? 0.05 : 0.06);
               resolve(sound);
             }
           });
