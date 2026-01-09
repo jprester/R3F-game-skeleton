@@ -17,7 +17,12 @@ function Desk({
       position={position}
       rotation={[0, rotation, 0]}
       colliders="cuboid">
-      <primitive object={deskScene.clone()} scale={1} castShadow receiveShadow />
+      <primitive
+        object={deskScene.clone()}
+        scale={1}
+        castShadow
+        receiveShadow
+      />
     </RigidBody>
   );
 }
@@ -38,7 +43,92 @@ function Chair({
       position={position}
       rotation={[0, rotation, 0]}
       colliders="cuboid">
-      <primitive object={chairScene.clone()} scale={1} castShadow receiveShadow />
+      <primitive
+        object={chairScene.clone()}
+        scale={1}
+        castShadow
+        receiveShadow
+      />
+    </RigidBody>
+  );
+}
+
+// Folder component
+function Folder({
+  position,
+  rotation = 0,
+}: {
+  position: [number, number, number];
+  rotation?: number;
+}) {
+  const { folderScene } = useModels();
+
+  return (
+    <RigidBody
+      type="fixed"
+      position={position}
+      rotation={[0, rotation, 0]}
+      colliders="cuboid">
+      <primitive
+        object={folderScene.clone()}
+        scale={1}
+        castShadow
+        receiveShadow
+      />
+    </RigidBody>
+  );
+}
+
+// Cardboard Boxes component
+function CardboardBoxes({
+  position,
+  rotation = 0,
+}: {
+  position: [number, number, number];
+  rotation?: number;
+}) {
+  const { boxesScene } = useModels();
+
+  return (
+    <RigidBody
+      type="fixed"
+      position={position}
+      rotation={[0, rotation, 0]}
+      colliders="cuboid">
+      <primitive
+        object={boxesScene.clone()}
+        scale={1}
+        castShadow
+        receiveShadow
+      />
+    </RigidBody>
+  );
+}
+
+// Door component
+function Door({
+  position,
+  rotation = 0,
+  scale = 1,
+}: {
+  position: [number, number, number];
+  rotation?: number;
+  scale?: number;
+}) {
+  const { doorScene } = useModels();
+
+  return (
+    <RigidBody
+      type="fixed"
+      position={position}
+      rotation={[0, rotation, 0]}
+      colliders="cuboid">
+      <primitive
+        object={doorScene.clone()}
+        scale={scale}
+        castShadow
+        receiveShadow
+      />
     </RigidBody>
   );
 }
@@ -122,6 +212,8 @@ export default function Furniture() {
     <group>
       {/* Center desk */}
       <Desk position={[0, 0, 0]} />
+      {/* Folder on central desk */}
+      <Folder position={[0.6, 0.86, 0]} rotation={Math.PI / 6} />
 
       {/* Chairs around the desk */}
       <Chair position={[0, 0, 1.2]} rotation={Math.PI} />
@@ -132,6 +224,12 @@ export default function Furniture() {
       {/* Corner furniture */}
       <Desk position={[-3, 0, -2]} />
       <Chair position={[-3, 0, -1]} rotation={Math.PI} />
+
+      {/* Cardboard boxes in corner */}
+      <CardboardBoxes position={[3.5, 0.45, 3.5]} rotation={-Math.PI / 4} />
+
+      {/* Door on the wall */}
+      <Door position={[4.885, 0, 0]} rotation={-Math.PI / 2} scale={0.5} />
 
       {/* Crates in corner */}
       {/* <Crate position={[4, 0.3, -4]} />
