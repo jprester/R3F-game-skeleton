@@ -49,11 +49,19 @@ export default function Room() {
     []
   );
 
+  const abstractDrawingTextureConfig = useMemo(
+    () => ({
+      map: "/textures/painting/abstract-drawing/maxfabris_single_continuous_line_drawing_belle_epoque_little_ch_8e5a236c-ee61-4951-b52a-da2a89910853.png",
+    }),
+    []
+  );
+
   // Load textures with memoized configs
   const floorTextures = useTexture(floorTextureConfig);
   const wallTextures = useTexture(wallTextureConfig);
   const ceilingTextures = useTexture(ceilingTextureConfig);
   const paintingTextures = useTexture(paintingTextureConfig);
+  const abstractDrawingTextures = useTexture(abstractDrawingTextureConfig);
 
   // Memoize texture configuration callbacks
   useMemo(() => {
@@ -97,6 +105,14 @@ export default function Room() {
   );
 
   const paintingGeometry = useMemo(() => new PlaneGeometry(2, 1.5), []);
+
+  // Abstract drawing: 1792x2688 = 2:3 aspect ratio (portrait)
+  const abstractDrawingGeometry = useMemo(() => new PlaneGeometry(1, 1.5), []);
+  // Frame slightly larger than the drawing for border effect
+  const abstractFrameGeometry = useMemo(
+    () => new PlaneGeometry(1.12, 1.62),
+    []
+  );
 
   return (
     <group>
@@ -164,6 +180,22 @@ export default function Room() {
           <meshStandardMaterial {...wallTextures} />
         </mesh>
       </RigidBody>
+
+      {/* Abstract drawing with frame on left wall */}
+      <group
+        position={[-ROOM_WIDTH / 2 + WALL_THICKNESS / 2 + 0.01, 2, 0]}
+        rotation={[0, Math.PI / 2, 0]}>
+        {/* Black frame (behind the drawing) */}
+        <mesh receiveShadow>
+          <primitive object={abstractFrameGeometry} attach="geometry" />
+          <meshStandardMaterial color="#1a1a1a" />
+        </mesh>
+        {/* Drawing (slightly in front of frame) */}
+        <mesh position={[0, 0, 0.005]} receiveShadow>
+          <primitive object={abstractDrawingGeometry} attach="geometry" />
+          <meshStandardMaterial {...abstractDrawingTextures} />
+        </mesh>
+      </group>
 
       {/* Right wall */}
       <RigidBody type="fixed" colliders="cuboid">
