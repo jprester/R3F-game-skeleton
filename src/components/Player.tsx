@@ -7,7 +7,6 @@ import {
 } from "@react-three/rapier";
 import { useKeyboardControls } from "@react-three/drei";
 import { Vector3 } from "three";
-import { useAudio } from "./AudioProvider";
 
 interface PlayerProps {
   position?: [number, number, number];
@@ -15,21 +14,18 @@ interface PlayerProps {
 
 // Movement settings
 const MOVE_SPEED = 5;
-const JUMP_FORCE = 3;
-const FOOTSTEP_INTERVAL = 0.4; // seconds between footstep sounds
+
+// Player height settings (188cm tall, eye height ~173cm)
+const PLAYER_CAPSULE_HALF_HEIGHT = 0.7; // Half of body height
+const PLAYER_CAPSULE_RADIUS = 0.3;
+const CAMERA_Y_OFFSET = 0.85; // Offset from capsule center to eye level
 
 export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   const rigidBodyRef = useRef<RapierRigidBody>(null);
-  const isOnGround = useRef(true);
 
   // Rotation state (not using React state to avoid re-renders)
   const rotation = useRef({ x: 0, y: 0 });
   const isPointerLocked = useRef(false);
-
-  // Audio
-  const { playFootstep, stopFootsteps } = useAudio();
-  const lastFootstepTime = useRef(0);
-  const wasMoving = useRef(false);
 
   // Reusable Vector3 instances to avoid per-frame allocation
   const moveDirection = useRef(new Vector3());
@@ -82,7 +78,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   useFrame((state) => {
     if (!rigidBodyRef.current) return;
 
-    const { forward, backward, left, right, jump } = getKeys();
+    const { forward, backward, left, right } = getKeys();
 
     // Get current velocity
     const velocity = rigidBodyRef.current.linvel();
@@ -111,40 +107,9 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
       true
     );
 
-    // Footstep sounds - play when moving on ground
-    const isMoving = direction.length() > 0;
-    const currentTime = state.clock.getElapsedTime();
-
-    if (isMoving && isOnGround.current) {
-      if (currentTime - lastFootstepTime.current > FOOTSTEP_INTERVAL) {
-        playFootstep();
-        lastFootstepTime.current = currentTime;
-      }
-    } else if (wasMoving.current && !isMoving) {
-      // Stop footstep sounds when player stops moving
-      stopFootsteps();
-    }
-
-    wasMoving.current = isMoving;
-
-    // Jump logic
+    // Update camera position and rotation (eye level for tall player)
     const position = rigidBodyRef.current.translation();
-
-    // Simple ground check (player starts at y ~= 1 when on floor due to capsule)
-    if (position.y < 1.1) {
-      isOnGround.current = true;
-    }
-
-    if (jump && isOnGround.current) {
-      rigidBodyRef.current.setLinvel(
-        { x: velocity.x, y: JUMP_FORCE, z: velocity.z },
-        true
-      );
-      isOnGround.current = false;
-    }
-
-    // Update camera position and rotation
-    state.camera.position.set(position.x, position.y + 0.5, position.z);
+    state.camera.position.set(position.x, position.y + CAMERA_Y_OFFSET, position.z);
     state.camera.rotation.order = "YXZ";
     state.camera.rotation.y = rotation.current.y;
     state.camera.rotation.x = rotation.current.x;
@@ -158,8 +123,8 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
       linearDamping={0.5}
       mass={1}
       colliders={false}>
-      {/* Capsule collider for player body */}
-      <CapsuleCollider args={[0.35, 0.3]} />
+      {/* Capsule collider for player body (taller player) */}
+      <CapsuleCollider args={[PLAYER_CAPSULE_HALF_HEIGHT, PLAYER_CAPSULE_RADIUS]} />
     </RigidBody>
   );
 }
