@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import Player from "./Player";
 import { AudioProvider } from "./AudioProvider";
+import { ModelProvider } from "./ModelProvider";
 import { LevelManager, officeLevelData, localToWorld } from "../level";
 
 interface SceneProps {
@@ -25,11 +26,13 @@ export default function Scene({
 
   return (
     <AudioProvider isMuted={isMuted} masterVolume={masterVolume}>
-      {/* Level system handles fog, ambient light, chunks, and furniture */}
-      <LevelManager levelData={officeLevelData}>
-        {/* Player with collision - spawns at level-defined spawn point */}
-        <Player position={spawnPosition} />
-      </LevelManager>
+      <ModelProvider>
+        {/* Level system handles fog, ambient light, chunks, and furniture */}
+        <LevelManager levelData={officeLevelData}>
+          {/* Player with collision - spawns at level-defined spawn point */}
+          <Player position={spawnPosition} />
+        </LevelManager>
+      </ModelProvider>
     </AudioProvider>
   );
 }
