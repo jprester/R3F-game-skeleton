@@ -1,50 +1,23 @@
-import { useState, useCallback } from "react";
+import { ACESFilmicToneMapping } from "three";
 import { Canvas } from "@react-three/fiber";
-import { Physics } from "@react-three/rapier";
-import { KeyboardControls } from "@react-three/drei";
 import Scene from "./components/Scene";
 import UI from "./components/UI";
 
-// Define keyboard controls mapping
-const keyboardMap = [
-  { name: "forward", keys: ["ArrowUp", "KeyW"] },
-  { name: "backward", keys: ["ArrowDown", "KeyS"] },
-  { name: "left", keys: ["ArrowLeft", "KeyA"] },
-  { name: "right", keys: ["ArrowRight", "KeyD"] },
-  { name: "jump", keys: ["Space"] },
-];
-
 export default function App() {
-  const [isMuted, setIsMuted] = useState(false);
-  const [masterVolume, setMasterVolume] = useState(0.5);
-
-  const toggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
-  }, []);
-
-  const handleVolumeChange = useCallback((volume: number) => {
-    setMasterVolume(volume);
-    if (volume > 0) setIsMuted(false);
-  }, []);
-
   return (
     <>
-      <KeyboardControls map={keyboardMap}>
-        <Canvas
-          shadows
-          camera={{ fov: 60, near: 0.1, far: 30 }}
-          style={{ background: "#1a1a2e" }}>
-          <Physics gravity={[0, -20, 0]} debug={false}>
-            <Scene isMuted={isMuted} masterVolume={masterVolume} />
-          </Physics>
-        </Canvas>
-      </KeyboardControls>
-      <UI
-        isMuted={isMuted}
-        masterVolume={masterVolume}
-        onToggleMute={toggleMute}
-        onVolumeChange={handleVolumeChange}
-      />
+      <Canvas
+        camera={{ fov: 55, near: 1, far: 20000, position: [30, 30, 100] }}
+        gl={{ antialias: true }}
+        dpr={[1, 2]}
+        onCreated={({ gl }) => {
+          gl.toneMapping = ACESFilmicToneMapping;
+          gl.toneMappingExposure = 0.5;
+        }}
+        style={{ background: "#000", width: "100vw", height: "100vh" }}>
+        <Scene />
+      </Canvas>
+      <UI />
     </>
   );
 }

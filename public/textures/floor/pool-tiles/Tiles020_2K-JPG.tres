@@ -1,0 +1,15 @@
+[gd_resource type="StandardMaterial3D" load_steps=5 format=3 uid="acg_ha5me1ov"]
+
+[ext_resource type="Texture2D" uid="uid://acg_r7enaxi2" id="Color" path="./Tiles020_2K-JPG_Color.jpg"]
+[ext_resource type="Texture2D" uid="uid://acg_txh92q8r" id="Displacement" path="./Tiles020_2K-JPG_Displacement.jpg"]
+[ext_resource type="Texture2D" uid="uid://acg_xy17zqcd" id="Roughness" path="./Tiles020_2K-JPG_Roughness.jpg"]
+[ext_resource type="Texture2D" uid="uid://acg_iwd5gn6p" id="NormalGL" path="./Tiles020_2K-JPG_NormalGL.jpg"]
+[resource]
+albedo_texture = ExtResource("Color")
+roughness_texture = ExtResource("Roughness")
+roughness_texture_channel = 4
+normal_texture = ExtResource("NormalGL")
+normal_enabled = true
+heightmap_texture = ExtResource("Displacement")
+heightmap_scale = 1.0
+heightmap_enabled = true

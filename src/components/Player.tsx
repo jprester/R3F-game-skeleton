@@ -8,6 +8,7 @@ import {
 import { useKeyboardControls } from "@react-three/drei";
 import { Vector3 } from "three";
 import { useAudio } from "./AudioProvider";
+import { updatePlayerState } from "../gameState";
 
 interface PlayerProps {
   position?: [number, number, number];
@@ -17,6 +18,7 @@ interface PlayerProps {
 const MOVE_SPEED = 5;
 const JUMP_FORCE = 3;
 const FOOTSTEP_INTERVAL = 0.4; // seconds between footstep sounds
+const GROUND_CHECK_Y = 1.25;
 
 export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   const rigidBodyRef = useRef<RapierRigidBody>(null);
@@ -42,7 +44,16 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   useEffect(() => {
     // Handle pointer lock
     const handleCanvasClick = () => {
-      document.body.requestPointerLock();
+      try {
+        const pointerLockRequest = document.body.requestPointerLock();
+        if (pointerLockRequest) {
+          pointerLockRequest.catch(() => {
+            isPointerLocked.current = false;
+          });
+        }
+      } catch {
+        isPointerLocked.current = false;
+      }
     };
 
     const handlePointerLockChange = () => {
@@ -130,8 +141,8 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
     // Jump logic
     const position = rigidBodyRef.current.translation();
 
-    // Simple ground check (player starts at y ~= 1 when on floor due to capsule)
-    if (position.y < 1.1) {
+    // Simple ground check for the low tiled platforms in this scene.
+    if (position.y < GROUND_CHECK_Y) {
       isOnGround.current = true;
     }
 
@@ -148,6 +159,20 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
     state.camera.rotation.order = "YXZ";
     state.camera.rotation.y = rotation.current.y;
     state.camera.rotation.x = rotation.current.x;
+
+    updatePlayerState({
+      x: position.x,
+      y: position.y,
+      z: position.z,
+      velocity: {
+        x: velocity.x,
+        y: velocity.y,
+        z: velocity.z,
+      },
+      yaw: rotation.current.y,
+      pitch: rotation.current.x,
+      onGround: isOnGround.current,
+    });
   });
 
   return (
