@@ -1,27 +1,31 @@
 import { useEffect, useMemo, useRef } from "react";
+import { useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
+  BackSide,
   Euler,
+  Fog,
+  Mesh,
   MeshStandardMaterial,
   MathUtils,
   PlaneGeometry,
-  PMREMGenerator,
   RepeatWrapping,
+  ShaderMaterial,
+  SphereGeometry,
   SRGBColorSpace,
   Texture,
   TextureLoader,
   Vector2,
   Vector3,
 } from "three";
-import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { Water } from "three/examples/jsm/objects/Water.js";
 
 const OCEAN_SIZE = 10000;
 const SUN_ELEVATION = 2;
 const SUN_AZIMUTH = 180;
 const LOOK_SENSITIVITY = 0.002;
-const FLOOR_WIDTH = 260;
-const FLOOR_DEPTH = 170;
+const FLOOR_WIDTH = 90;
+const FLOOR_DEPTH = 65;
 const FLOOR_HEIGHT = 5.2;
 const FLOOR_TEXTURE_WORLD_SIZE = 12;
 const PILLAR_WIDTH = 3.4;
@@ -51,7 +55,7 @@ interface PlayerSnapshot {
   lastJumpPeakY: number;
 }
 
-function getUniforms(object: Sky | Water) {
+function getUniforms(object: Water) {
   return object.material.uniforms;
 }
 
@@ -286,6 +290,33 @@ function configureRepeatingTexture(
   return texture;
 }
 
+const COLUMN_POSITIONS: [number, number, number][] = [
+  [-32, FLOOR_HEIGHT, -18],
+  [-32, FLOOR_HEIGHT, 0],
+  [-32, FLOOR_HEIGHT, 18],
+  [32, FLOOR_HEIGHT, -18],
+  [32, FLOOR_HEIGHT, 0],
+  [32, FLOOR_HEIGHT, 18],
+];
+
+function DoricColumns() {
+  const { scene } = useGLTF("/models/misc/doric_pillar.glb");
+  return (
+    <>
+      {COLUMN_POSITIONS.map((pos, i) => (
+        <primitive key={i} object={scene.clone(true)} position={pos} />
+      ))}
+    </>
+  );
+}
+
+function VaporwaveBust() {
+  const { scene } = useGLTF("/models/statue/helios_vaporwave_bust.glb");
+  return (
+    <primitive object={scene} position={[60, 0, -182]} scale={[2, 2, 2]} />
+  );
+}
+
 function FloatingFloor() {
   const [colorMap, normalMap, roughnessMap] = useLoader(TextureLoader, [
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Color.jpg",
@@ -306,8 +337,8 @@ function FloatingFloor() {
         repeatY,
       ),
       normalScale: new Vector2(0.08, 0.08),
-      color: "#f5f5f0",
-      roughness: 0.56,
+      color: "#e8d0d8",
+      roughness: 0.82,
       metalness: 0,
     });
   }, [colorMap, normalMap, roughnessMap]);
@@ -325,8 +356,8 @@ function FloatingFloor() {
         repeatY,
       ),
       normalScale: new Vector2(0.08, 0.08),
-      color: "#f5f5f0",
-      roughness: 0.56,
+      color: "#e8d0d8",
+      roughness: 0.82,
       metalness: 0,
     });
   }, [colorMap, normalMap, roughnessMap]);
@@ -338,7 +369,7 @@ function FloatingFloor() {
     <group position={[0, FLOOR_HEIGHT, 0]}>
       <mesh position={[0, -0.38, 0]} receiveShadow>
         <boxGeometry args={[FLOOR_WIDTH, 0.72, FLOOR_DEPTH]} />
-        <meshStandardMaterial color="#b9c1bd" roughness={0.68} metalness={0} />
+        <meshStandardMaterial color="#d4bcc6" roughness={0.82} metalness={0} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} material={floorMaterial}>
         <planeGeometry args={[FLOOR_WIDTH, FLOOR_DEPTH]} />
@@ -354,24 +385,63 @@ function FloatingFloor() {
   );
 }
 
+const skyVertexShader = /* glsl */ `
+  varying vec3 vWorldPosition;
+  void main() {
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const skyFragmentShader = /* glsl */ `
+  varying vec3 vWorldPosition;
+
+  vec3 vaporwaveSky(vec3 dir) {
+    float height = dir.y;
+
+    vec3 horizon = vec3(0.98, 0.72, 0.82);
+    vec3 mid     = vec3(0.82, 0.72, 0.90);
+    vec3 top     = vec3(0.60, 0.80, 0.95);
+
+    vec3 color = mix(horizon, mid, smoothstep(-0.1, 0.5, height));
+    color = mix(color, top, smoothstep(0.1, 0.9, height));
+
+    // golden sun disc with soft halo
+    vec3 sunDir = normalize(vec3(0.0, -0.08, -1.0));
+    float cosAngle = dot(dir, sunDir);
+    float disc = pow(max(0.0, cosAngle), 180.0);
+    float halo = pow(max(0.0, cosAngle), 12.0) * 0.3;
+    color += vec3(1.0, 0.88, 0.45) * disc * 6.0;
+    color += vec3(1.0, 0.80, 0.55) * halo;
+
+    return color;
+  }
+
+  void main() {
+    vec3 dir = normalize(vWorldPosition);
+    gl_FragColor = vec4(vaporwaveSky(dir), 1.0);
+  }
+`;
+
 export default function Scene() {
   const { camera, gl, scene } = useThree();
   const waterRef = useRef<Water>(null);
   const sun = useMemo(() => new Vector3(), []);
   const waterNormals = useLoader(TextureLoader, "/textures/waternormals.jpg");
 
-  const sky = useMemo(() => {
-    const skyObject = new Sky();
-    skyObject.scale.setScalar(OCEAN_SIZE);
-
-    const uniforms = getUniforms(skyObject);
-    uniforms.turbidity.value = 10;
-    uniforms.rayleigh.value = 2;
-    uniforms.mieCoefficient.value = 0.005;
-    uniforms.mieDirectionalG.value = 0.8;
-
-    return skyObject;
-  }, []);
+  const skyMesh = useMemo(
+    () =>
+      new Mesh(
+        new SphereGeometry(OCEAN_SIZE, 32, 32),
+        new ShaderMaterial({
+          vertexShader: skyVertexShader,
+          fragmentShader: skyFragmentShader,
+          side: BackSide,
+        }),
+      ),
+    [],
+  );
 
   const water = useMemo(() => {
     waterNormals.wrapS = RepeatWrapping;
@@ -383,9 +453,9 @@ export default function Scene() {
       textureHeight: 512,
       waterNormals,
       sunDirection: new Vector3(),
-      sunColor: 0xffffff,
-      waterColor: 0x001e0f,
-      distortionScale: 3.7,
+      sunColor: 0xffe8a0,
+      waterColor: 0xe8c0d0,
+      distortionScale: 2.0,
       fog: false,
     });
 
@@ -401,21 +471,13 @@ export default function Scene() {
     const theta = MathUtils.degToRad(SUN_AZIMUTH);
     sun.setFromSphericalCoords(1, phi, theta);
 
-    getUniforms(sky).sunPosition.value.copy(sun);
     getUniforms(water).sunDirection.value.copy(sun).normalize();
-
-    const pmremGenerator = new PMREMGenerator(gl);
-    const renderTarget = pmremGenerator.fromScene(
-      sky as unknown as Parameters<PMREMGenerator["fromScene"]>[0],
-    );
-    scene.environment = renderTarget.texture;
+    scene.fog = new Fog(0xf5cedd, 60, 700);
 
     return () => {
-      scene.environment = null;
-      renderTarget.dispose();
-      pmremGenerator.dispose();
+      scene.fog = null;
     };
-  }, [gl, scene, sky, sun, water]);
+  }, [scene, sun, water]);
 
   useEffect(() => {
     window.render_game_to_text = () =>
@@ -469,9 +531,18 @@ export default function Scene() {
 
   return (
     <>
-      <primitive object={sky} />
+      <primitive object={skyMesh} />
       <primitive ref={waterRef} object={water} />
+      <ambientLight color={0xffe8f2} intensity={3.0} />
+      {/* <hemisphereLight args={[0xf0c0d8, 0xc0d8f0, 2.0]} />
+      <directionalLight
+        color={0xfff5e0}
+        intensity={1.2}
+        position={[0, 10, -50]}
+      /> */}
       <FloatingFloor />
+      <DoricColumns />
+      <VaporwaveBust />
     </>
   );
 }
