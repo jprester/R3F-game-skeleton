@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useGLTF } from "@react-three/drei";
+import { Cloud, Clouds, useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
   BackSide,
   Euler,
   Fog,
   Mesh,
+  MeshLambertMaterial,
   MeshStandardMaterial,
   MathUtils,
   PlaneGeometry,
@@ -407,13 +408,38 @@ const skyFragmentShader = /* glsl */ `
     vec3 color = mix(horizon, mid, smoothstep(-0.1, 0.5, height));
     color = mix(color, top, smoothstep(0.1, 0.9, height));
 
-    // golden sun disc with soft halo
-    vec3 sunDir = normalize(vec3(0.0, -0.08, -1.0));
+    // Vaporwave striped sun
+    vec3 sunDir = normalize(vec3(0.0, 0.08, -1.0));
+    float sunRadius = 0.18;
     float cosAngle = dot(dir, sunDir);
-    float disc = pow(max(0.0, cosAngle), 180.0);
-    float halo = pow(max(0.0, cosAngle), 12.0) * 0.3;
-    color += vec3(1.0, 0.88, 0.45) * disc * 6.0;
-    color += vec3(1.0, 0.80, 0.55) * halo;
+    float angle = acos(clamp(cosAngle, -1.0, 1.0));
+
+    // Atmospheric glow
+    float halo = exp(-angle * 5.5) * 0.45;
+    color += vec3(1.0, 0.65, 0.45) * halo;
+
+    if (angle < sunRadius) {
+      float sunLocalY = (dir.y - sunDir.y) / sunRadius; // -1=bottom, +1=top
+      float yNorm = clamp(sunLocalY * 0.5 + 0.5, 0.0, 1.0);
+
+      // Gradient: magenta -> orange -> warm yellow
+      vec3 sunTop = vec3(1.0, 0.97, 0.40);
+      vec3 sunMid = vec3(1.0, 0.50, 0.12);
+      vec3 sunBot = vec3(0.95, 0.10, 0.52);
+      vec3 sunColor = mix(sunBot, sunMid, smoothstep(0.0, 0.5, yNorm));
+      sunColor = mix(sunColor, sunTop, smoothstep(0.5, 1.0, yNorm));
+
+      // Horizontal stripes in lower half — denser toward bottom (perspective effect)
+      float isSolid = 1.0;
+      if (dir.y < sunDir.y) {
+        float t = clamp((sunDir.y - dir.y) / sunRadius, 0.0, 1.0);
+        float bandIndex = floor(t * t * 8.0);
+        isSolid = 1.0 - mod(bandIndex, 2.0);
+      }
+
+      float edgeFade = smoothstep(sunRadius, sunRadius * 0.88, angle);
+      color = mix(color, sunColor, isSolid * edgeFade);
+    }
 
     return color;
   }
@@ -423,6 +449,43 @@ const skyFragmentShader = /* glsl */ `
     gl_FragColor = vec4(vaporwaveSky(dir), 1.0);
   }
 `;
+
+function VaporwaveClouds() {
+  return (
+    <Clouds material={MeshLambertMaterial}>
+      <Cloud
+        position={[-180, 90, -350]}
+        bounds={[120, 20, 30]}
+        volume={18}
+        segments={25}
+        color="#e8b0d8"
+        fade={40}
+        speed={0.15}
+        opacity={0.65}
+      />
+      <Cloud
+        position={[220, 110, -280]}
+        bounds={[100, 18, 25]}
+        volume={15}
+        segments={20}
+        color="#d4a8f0"
+        fade={35}
+        speed={0.12}
+        opacity={0.55}
+      />
+      <Cloud
+        position={[0, 140, -600]}
+        bounds={[160, 25, 40]}
+        volume={22}
+        segments={30}
+        color="#f0c0e0"
+        fade={50}
+        speed={0.1}
+        opacity={0.45}
+      />
+    </Clouds>
+  );
+}
 
 export default function Scene() {
   const { camera, gl, scene } = useThree();
@@ -540,6 +603,7 @@ export default function Scene() {
         intensity={1.2}
         position={[0, 10, -50]}
       /> */}
+      <VaporwaveClouds />
       <FloatingFloor />
       <DoricColumns />
       <VaporwaveBust />
