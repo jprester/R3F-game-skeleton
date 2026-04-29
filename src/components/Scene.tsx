@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Cloud, Clouds, useGLTF } from "@react-three/drei";
+import { useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
   BackSide,
   Euler,
   Fog,
   Mesh,
-  MeshLambertMaterial,
   MeshStandardMaterial,
   MathUtils,
   PlaneGeometry,
@@ -398,94 +397,94 @@ const skyVertexShader = /* glsl */ `
 const skyFragmentShader = /* glsl */ `
   varying vec3 vWorldPosition;
 
-  vec3 vaporwaveSky(vec3 dir) {
-    float height = dir.y;
+  float hash(vec2 p) {
+    p = fract(p * vec2(127.1, 311.7));
+    p += dot(p, p + 17.5);
+    return fract(p.x * p.y);
+  }
 
-    vec3 horizon = vec3(0.98, 0.72, 0.82);
-    vec3 mid     = vec3(0.82, 0.72, 0.90);
-    vec3 top     = vec3(0.60, 0.80, 0.95);
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+      mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+      u.y
+    );
+  }
 
-    vec3 color = mix(horizon, mid, smoothstep(-0.1, 0.5, height));
-    color = mix(color, top, smoothstep(0.1, 0.9, height));
-
-    // Vaporwave striped sun
-    vec3 sunDir = normalize(vec3(0.0, 0.08, -1.0));
-    float sunRadius = 0.18;
-    float cosAngle = dot(dir, sunDir);
-    float angle = acos(clamp(cosAngle, -1.0, 1.0));
-
-    // Atmospheric glow
-    float halo = exp(-angle * 5.5) * 0.45;
-    color += vec3(1.0, 0.65, 0.45) * halo;
-
-    if (angle < sunRadius) {
-      float sunLocalY = (dir.y - sunDir.y) / sunRadius; // -1=bottom, +1=top
-      float yNorm = clamp(sunLocalY * 0.5 + 0.5, 0.0, 1.0);
-
-      // Gradient: magenta -> orange -> warm yellow
-      vec3 sunTop = vec3(1.0, 0.97, 0.40);
-      vec3 sunMid = vec3(1.0, 0.50, 0.12);
-      vec3 sunBot = vec3(0.95, 0.10, 0.52);
-      vec3 sunColor = mix(sunBot, sunMid, smoothstep(0.0, 0.5, yNorm));
-      sunColor = mix(sunColor, sunTop, smoothstep(0.5, 1.0, yNorm));
-
-      // Horizontal stripes in lower half — denser toward bottom (perspective effect)
-      float isSolid = 1.0;
-      if (dir.y < sunDir.y) {
-        float t = clamp((sunDir.y - dir.y) / sunRadius, 0.0, 1.0);
-        float bandIndex = floor(t * t * 8.0);
-        isSolid = 1.0 - mod(bandIndex, 2.0);
-      }
-
-      float edgeFade = smoothstep(sunRadius, sunRadius * 0.88, angle);
-      color = mix(color, sunColor, isSolid * edgeFade);
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 6; i++) {
+      v += a * noise(p);
+      p = p * 2.1 + vec2(1.3, 0.7);
+      a *= 0.5;
     }
-
-    return color;
+    return v;
   }
 
   void main() {
     vec3 dir = normalize(vWorldPosition);
-    gl_FragColor = vec4(vaporwaveSky(dir), 1.0);
+    float h = dir.y;
+
+    // Sky gradient: warm peach-pink horizon -> muted lavender mid -> blue-grey top
+    vec3 skyHorizon = vec3(0.94, 0.74, 0.80);
+    vec3 skyMid     = vec3(0.72, 0.68, 0.88);
+    vec3 skyTop     = vec3(0.52, 0.62, 0.82);
+    vec3 color = mix(skyHorizon, skyMid, smoothstep(0.0, 0.45, h));
+    color = mix(color, skyTop, smoothstep(0.25, 0.95, h));
+
+    // === SUN ===
+    vec3 sunDir = normalize(vec3(0.0, 0.07, -1.0));
+    float angle = acos(clamp(dot(dir, sunDir), -1.0, 1.0));
+    float sunR = 0.19;
+
+    // Pink atmospheric glow
+    color += vec3(0.95, 0.42, 0.65) * exp(-angle * 5.0) * 0.40;
+
+    if (angle < sunR) {
+      float yNorm = clamp((dir.y - sunDir.y) / sunR * 0.5 + 0.5, 0.0, 1.0);
+
+      // Magenta bottom -> soft pink top
+      vec3 sunColor = mix(vec3(0.92, 0.25, 0.60), vec3(1.0, 0.78, 0.90), yNorm);
+
+      // Horizontal scan lines in lower half, denser toward bottom
+      float scanMask = 1.0;
+      if (dir.y < sunDir.y) {
+        float t = clamp((sunDir.y - dir.y) / sunR, 0.0, 1.0);
+        float band = floor(t * t * 12.0);
+        scanMask = 1.0 - mod(band, 2.0);
+      }
+
+      float edge = smoothstep(sunR, sunR * 0.88, angle);
+      color = mix(color, sunColor, scanMask * edge);
+    }
+
+    // === FBM CLOUDS ===
+    if (h > 0.02) {
+      vec2 uv = dir.xz / max(h, 0.05);
+      vec2 p = uv * 2.2;
+
+      // Domain warping for organic, fluffy shapes
+      vec2 warp = vec2(fbm(p + vec2(1.7, 9.2)), fbm(p + vec2(8.3, 2.8)));
+      float cn = fbm(p + warp * 1.5);
+
+      float cloudShape = smoothstep(0.44, 0.60, cn);
+      float hFade = smoothstep(0.02, 0.20, h);            // dissolve at horizon
+      float zFade = 1.0 - smoothstep(0.55, 0.85, h);      // thin out near zenith
+      float alpha = cloudShape * hFade * zFade * 0.90;
+
+      // Slightly lavender-tinted white
+      vec3 cloudCol = mix(vec3(0.88, 0.85, 0.94), vec3(0.98, 0.96, 0.99), h * 2.0);
+      color = mix(color, cloudCol, alpha);
+    }
+
+    gl_FragColor = vec4(color, 1.0);
   }
 `;
 
-function VaporwaveClouds() {
-  return (
-    <Clouds material={MeshLambertMaterial}>
-      <Cloud
-        position={[-180, 90, -350]}
-        bounds={[120, 20, 30]}
-        volume={18}
-        segments={25}
-        color="#e8b0d8"
-        fade={40}
-        speed={0.15}
-        opacity={0.65}
-      />
-      <Cloud
-        position={[220, 110, -280]}
-        bounds={[100, 18, 25]}
-        volume={15}
-        segments={20}
-        color="#d4a8f0"
-        fade={35}
-        speed={0.12}
-        opacity={0.55}
-      />
-      <Cloud
-        position={[0, 140, -600]}
-        bounds={[160, 25, 40]}
-        volume={22}
-        segments={30}
-        color="#f0c0e0"
-        fade={50}
-        speed={0.1}
-        opacity={0.45}
-      />
-    </Clouds>
-  );
-}
 
 export default function Scene() {
   const { camera, gl, scene } = useThree();
@@ -596,14 +595,13 @@ export default function Scene() {
     <>
       <primitive object={skyMesh} />
       <primitive ref={waterRef} object={water} />
-      <ambientLight color={0xffe8f2} intensity={3.0} />
-      {/* <hemisphereLight args={[0xf0c0d8, 0xc0d8f0, 2.0]} />
+      <ambientLight color={0xf0d8e8} intensity={1.8} />
+      <hemisphereLight args={[0xc0c8f0, 0xf0c0d8, 1.8]} />
       <directionalLight
-        color={0xfff5e0}
-        intensity={1.2}
-        position={[0, 10, -50]}
-      /> */}
-      <VaporwaveClouds />
+        color={0xffe0f0}
+        intensity={0.9}
+        position={[0, 80, -500]}
+      />
       <FloatingFloor />
       <DoricColumns />
       <VaporwaveBust />
