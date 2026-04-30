@@ -46,16 +46,16 @@ void main() {
   // === SUN ===
   vec3 sunDir = normalize(vec3(0.0, 0.07, -1.0));
   float angle = acos(clamp(dot(dir, sunDir), -1.0, 1.0));
-  float sunR = 0.19;
+  float sunR = 0.15;
 
   // Pink atmospheric glow
-  color += vec3(0.95, 0.42, 0.65) * exp(-angle * 5.0) * 0.40;
+  color += vec3(1.08, 0.52, 0.86) * exp(-angle * 4.9) * 0.46;
 
   if (angle < sunR) {
     float yNorm = clamp((dir.y - sunDir.y) / sunR * 0.5 + 0.5, 0.0, 1.0);
 
     // Magenta bottom -> soft pink top
-    vec3 sunColor = mix(vec3(0.92, 0.25, 0.60), vec3(1.0, 0.78, 0.90), yNorm);
+    vec3 sunColor = mix(vec3(2.0, 0.58, 1.35), vec3(0.9, 1.6, 0.3), yNorm);
 
     // Horizontal scan lines in lower half, denser toward bottom
     float scanMask = 1.0;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
+import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import {
   BackSide,
   Euler,
@@ -389,20 +390,29 @@ function FloatingFloor() {
 export default function Scene() {
   const { camera, gl, scene } = useThree();
   const waterRef = useRef<Water>(null);
-  const sun = useMemo(() => new Vector3(), []);
+  const sunDirection = useMemo(() => {
+    const phi = MathUtils.degToRad(90 - SUN_ELEVATION);
+    const theta = MathUtils.degToRad(SUN_AZIMUTH);
+    return new Vector3().setFromSphericalCoords(1, phi, theta).normalize();
+  }, []);
   const waterNormals = useLoader(TextureLoader, "/textures/waternormals.jpg");
 
-  const skyMesh = useMemo(
+  const skyMaterial = useMemo(
     () =>
-      new Mesh(
-        new SphereGeometry(OCEAN_SIZE, 32, 32),
-        new RawShaderMaterial({
-          vertexShader: skyVertexShader,
-          fragmentShader: skyFragmentShader,
-          side: BackSide,
-        }),
-      ),
-    [],
+      new RawShaderMaterial({
+        vertexShader: skyVertexShader,
+        fragmentShader: skyFragmentShader,
+        side: BackSide,
+        uniforms: {
+          uSunDir: { value: sunDirection.clone() },
+        },
+      }),
+    [sunDirection],
+  );
+
+  const skyMesh = useMemo(
+    () => new Mesh(new SphereGeometry(OCEAN_SIZE, 32, 32), skyMaterial),
+    [skyMaterial],
   );
 
   const water = useMemo(() => {
@@ -429,17 +439,15 @@ export default function Scene() {
   const playerSnapshot = useGroundedPlayer();
 
   useEffect(() => {
-    const phi = MathUtils.degToRad(90 - SUN_ELEVATION);
-    const theta = MathUtils.degToRad(SUN_AZIMUTH);
-    sun.setFromSphericalCoords(1, phi, theta);
-
-    getUniforms(water).sunDirection.value.copy(sun).normalize();
+    getUniforms(water).sunDirection.value.copy(sunDirection);
+    const material = skyMesh.material as RawShaderMaterial;
+    material.uniforms.uSunDir.value.copy(sunDirection);
     scene.fog = new Fog(0xf5cedd, 60, 700);
 
     return () => {
       scene.fog = null;
     };
-  }, [scene, sun, water]);
+  }, [scene, skyMesh, sunDirection, water]);
 
   useEffect(() => {
     window.render_game_to_text = () =>
@@ -495,13 +503,27 @@ export default function Scene() {
     <>
       <primitive object={skyMesh} />
       <primitive ref={waterRef} object={water} />
-      <ambientLight color={0xf0d8e8} intensity={1.8} />
-      <hemisphereLight args={[0xc0c8f0, 0xf0c0d8, 1.8]} />
+      <ambientLight color={0xe8cad8} intensity={1.5} />
+      <hemisphereLight args={[0xb7b6d6, 0xe8bccf, 0.8]} />
       <directionalLight
-        color={0xffe0f0}
-        intensity={0.9}
-        position={[0, 80, -500]}
+        color={0xffc4a2}
+        intensity={3.7}
+        position={[
+          sunDirection.x * 500,
+          sunDirection.y * 500,
+          sunDirection.z * 500,
+        ]}
+        target-position={[0, FLOOR_HEIGHT, 0]}
       />
+      <EffectComposer enableNormalPass={false} multisampling={0}>
+        <Bloom
+          mipmapBlur
+          intensity={0.1}
+          luminanceThreshold={1.45}
+          luminanceSmoothing={0.5}
+          radius={0.22}
+        />
+      </EffectComposer>
       <FloatingFloor />
       <DoricColumns />
       <VaporwaveBust />
