@@ -30,6 +30,12 @@ import {
 import { Water } from "three/examples/jsm/objects/Water.js";
 import skyVertexShader from "../shaders/sky.vert.glsl";
 import skyFragmentShader from "../shaders/sky.frag.glsl";
+import MusicPlayer, {
+  BOOMBOX_CENTER_X,
+  BOOMBOX_CENTER_Z,
+  BOOMBOX_TABLE_DEPTH,
+  BOOMBOX_TABLE_WIDTH,
+} from "./MusicPlayer";
 
 const OCEAN_SIZE = 10000;
 const SUN_ELEVATION = 8;
@@ -259,6 +265,15 @@ function useGroundedPlayer() {
     for (const [cx, , cz] of COLUMN_POSITIONS) {
       pushOutOfAabb(camera, velocity, cx, cz, COLUMN_HALF * 2, COLUMN_HALF * 2);
     }
+
+    pushOutOfAabb(
+      camera,
+      velocity,
+      BOOMBOX_CENTER_X,
+      BOOMBOX_CENTER_Z,
+      BOOMBOX_TABLE_WIDTH,
+      BOOMBOX_TABLE_DEPTH,
+    );
 
     snapshot.current = {
       x: Number(camera.position.x.toFixed(3)),
@@ -641,7 +656,7 @@ function PlatoSign() {
 
   const pedestalY = FLOOR_HEIGHT + PEDESTAL_HEIGHT / 2;
   const textZ = PEDESTAL_DEPTH / 2 + 0.02;
-  const neonColor = useMemo(() => new Color(2.2, 0.45, 1.4), []);
+  const neonCore = useMemo(() => new Color(3.2, 0.65, 1.9), []);
 
   return (
     <group position={[PEDESTAL_CENTER_X, 0, PEDESTAL_CENTER_Z]}>
@@ -653,14 +668,21 @@ function PlatoSign() {
         <boxGeometry args={[PEDESTAL_WIDTH, PEDESTAL_HEIGHT, PEDESTAL_DEPTH]} />
       </mesh>
       <Text
-        position={[0, FLOOR_HEIGHT + 7.5, textZ]}
-        fontSize={0.85}
+        font="/fonts/Italianno-Regular.ttf"
+        position={[0, FLOOR_HEIGHT + 7.6, textZ]}
+        fontSize={1.45}
+        lineHeight={0.82}
+        letterSpacing={-0.03}
         anchorX="center"
         anchorY="middle"
-        maxWidth={PEDESTAL_WIDTH - 0.4}
-        textAlign="center">
+        maxWidth={PEDESTAL_WIDTH - 0.2}
+        textAlign="center"
+        outlineColor="#ff7cc8"
+        outlineWidth={0}
+        outlineBlur={0.45}
+        outlineOpacity={0.9}>
         Plato's{"\n"}Cove
-        <meshBasicMaterial color={neonColor} toneMapped={false} />
+        <meshBasicMaterial color={neonCore} toneMapped={false} />
       </Text>
     </group>
   );
@@ -825,6 +847,7 @@ export default function Scene() {
       <VaporwaveBust />
       <WomanStatue />
       <FloorDoor />
+      <MusicPlayer />
     </>
   );
 }
