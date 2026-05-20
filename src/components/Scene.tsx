@@ -539,7 +539,7 @@ function FloatingFloor() {
     [colorMap, normalMap, roughnessMap],
   );
 
-  const WALL_TILE_WORLD_SIZE = POOL_RECESS;
+  const WALL_TILE_WORLD_SIZE = FLOOR_TEXTURE_WORLD_SIZE;
   const poolWallMaterials = useMemo(
     () => ({
       ns: makeTiledMaterial(POOL_WIDTH, POOL_RECESS, WALL_TILE_WORLD_SIZE),
