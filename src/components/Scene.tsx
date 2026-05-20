@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useGLTF } from "@react-three/drei";
+import { Text, useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
-import { Bloom, EffectComposer } from "@react-three/postprocessing";
+import {
+  Bloom,
+  ChromaticAberration,
+  EffectComposer,
+  Noise,
+  Vignette,
+} from "@react-three/postprocessing";
+import { BlendFunction } from "postprocessing";
 import {
   BackSide,
+  Color,
   Euler,
   Fog,
   Mesh,
@@ -27,12 +35,22 @@ const OCEAN_SIZE = 10000;
 const SUN_ELEVATION = 8;
 const SUN_AZIMUTH = 180;
 const LOOK_SENSITIVITY = 0.002;
-const FLOOR_WIDTH = 90;
-const FLOOR_DEPTH = 65;
+const FLOOR_WIDTH = 56;
+const FLOOR_DEPTH = 50;
 const FLOOR_HEIGHT = 5.2;
 const FLOOR_TEXTURE_WORLD_SIZE = 12;
-const PILLAR_WIDTH = 3.4;
-const PILLAR_HEIGHT = 15;
+const FRAME_THICKNESS = 1.9;
+const POOL_WIDTH = 24;
+const POOL_DEPTH = 22;
+const POOL_CENTER_X = 0;
+const POOL_CENTER_Z = -2;
+const POOL_RECESS = 1.7;
+const POOL_WATER_DROP = 0.45;
+const PEDESTAL_WIDTH = 4.2;
+const PEDESTAL_HEIGHT = 12.5;
+const PEDESTAL_DEPTH = 4.2;
+const PEDESTAL_CENTER_X = -20;
+const PEDESTAL_CENTER_Z = -2;
 const PLAYER_EYE_HEIGHT = 1.7;
 const PLAYER_RADIUS = 1.2;
 const WALK_SPEED = 22;
@@ -79,7 +97,7 @@ function useGroundedPlayer() {
   const snapshot = useRef<PlayerSnapshot>({
     x: 0,
     y: FLOOR_HEIGHT + PLAYER_EYE_HEIGHT,
-    z: FLOOR_DEPTH / 2 - 13,
+    z: FLOOR_DEPTH / 2 - 5,
     velocity: { x: 0, y: 0, z: 0 },
     yaw: 0,
     pitch: 0,
@@ -92,7 +110,7 @@ function useGroundedPlayer() {
     camera.position.set(
       0,
       FLOOR_HEIGHT + PLAYER_EYE_HEIGHT,
-      FLOOR_DEPTH / 2 - 13,
+      FLOOR_DEPTH / 2 - 5,
     );
     camera.rotation.order = "YXZ";
     yaw.current = 0;
@@ -220,6 +238,23 @@ function useGroundedPlayer() {
       FLOOR_DEPTH / 2 - PLAYER_RADIUS,
     );
 
+    pushOutOfAabb(
+      camera,
+      velocity,
+      POOL_CENTER_X,
+      POOL_CENTER_Z,
+      POOL_WIDTH,
+      POOL_DEPTH,
+    );
+    pushOutOfAabb(
+      camera,
+      velocity,
+      PEDESTAL_CENTER_X,
+      PEDESTAL_CENTER_Z,
+      PEDESTAL_WIDTH,
+      PEDESTAL_DEPTH,
+    );
+
     snapshot.current = {
       x: Number(camera.position.x.toFixed(3)),
       y: Number(camera.position.y.toFixed(3)),
@@ -238,6 +273,30 @@ function useGroundedPlayer() {
   });
 
   return snapshot;
+}
+
+function pushOutOfAabb(
+  camera: { position: Vector3 },
+  velocity: Vector3,
+  centerX: number,
+  centerZ: number,
+  width: number,
+  depth: number,
+) {
+  const halfX = width / 2 + PLAYER_RADIUS;
+  const halfZ = depth / 2 + PLAYER_RADIUS;
+  const dx = camera.position.x - centerX;
+  const dz = camera.position.z - centerZ;
+  if (Math.abs(dx) >= halfX || Math.abs(dz) >= halfZ) return;
+  const penX = halfX - Math.abs(dx);
+  const penZ = halfZ - Math.abs(dz);
+  if (penX < penZ) {
+    camera.position.x = centerX + (dx >= 0 ? halfX : -halfX);
+    velocity.x = 0;
+  } else {
+    camera.position.z = centerZ + (dz >= 0 ? halfZ : -halfZ);
+    velocity.z = 0;
+  }
 }
 
 function hasAnyKey(keys: Set<string>, codes: string[]) {
@@ -293,12 +352,15 @@ function configureRepeatingTexture(
 }
 
 const COLUMN_POSITIONS: [number, number, number][] = [
-  [-32, FLOOR_HEIGHT, -18],
-  [-32, FLOOR_HEIGHT, 0],
-  [-32, FLOOR_HEIGHT, 18],
-  [32, FLOOR_HEIGHT, -18],
-  [32, FLOOR_HEIGHT, 0],
-  [32, FLOOR_HEIGHT, 18],
+  [20, FLOOR_HEIGHT, -19],
+  [20, FLOOR_HEIGHT, -10],
+  [20, FLOOR_HEIGHT, 0],
+  [20, FLOOR_HEIGHT, 8],
+  [20, FLOOR_HEIGHT, 17],
+  [-20, FLOOR_HEIGHT, -19],
+  [-20, FLOOR_HEIGHT, -10],
+  [-20, FLOOR_HEIGHT, 8],
+  [-20, FLOOR_HEIGHT, 17],
 ];
 
 function DoricColumns() {
@@ -326,10 +388,9 @@ function FloatingFloor() {
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Roughness.jpg",
   ]);
 
-  const pillarMaterial = useMemo(() => {
-    const repeatX = PILLAR_WIDTH / 10;
-    const repeatY = PILLAR_HEIGHT / 10;
-
+  const makeTiledMaterial = (width: number, depth: number) => {
+    const repeatX = width / FLOOR_TEXTURE_WORLD_SIZE;
+    const repeatY = depth / FLOOR_TEXTURE_WORLD_SIZE;
     return new MeshStandardMaterial({
       map: configureRepeatingTexture(colorMap.clone(), repeatX, repeatY, true),
       normalMap: configureRepeatingTexture(normalMap.clone(), repeatX, repeatY),
@@ -340,49 +401,195 @@ function FloatingFloor() {
       ),
       normalScale: new Vector2(0.08, 0.08),
       color: "#e8d0d8",
-      roughness: 0.22,
+      roughness: 0.32,
       metalness: 0,
     });
-  }, [colorMap, normalMap, roughnessMap]);
+  };
 
-  const floorMaterial = useMemo(() => {
-    const repeatX = FLOOR_WIDTH / FLOOR_TEXTURE_WORLD_SIZE;
-    const repeatY = FLOOR_DEPTH / FLOOR_TEXTURE_WORLD_SIZE;
+  const poolMinX = POOL_CENTER_X - POOL_WIDTH / 2;
+  const poolMaxX = POOL_CENTER_X + POOL_WIDTH / 2;
+  const poolMinZ = POOL_CENTER_Z - POOL_DEPTH / 2;
+  const poolMaxZ = POOL_CENTER_Z + POOL_DEPTH / 2;
+  const floorMinX = -FLOOR_WIDTH / 2;
+  const floorMaxX = FLOOR_WIDTH / 2;
+  const floorMinZ = -FLOOR_DEPTH / 2;
+  const floorMaxZ = FLOOR_DEPTH / 2;
 
-    return new MeshStandardMaterial({
-      map: configureRepeatingTexture(colorMap.clone(), repeatX, repeatY, true),
-      normalMap: configureRepeatingTexture(normalMap.clone(), repeatX, repeatY),
-      roughnessMap: configureRepeatingTexture(
-        roughnessMap.clone(),
-        repeatX,
-        repeatY,
-      ),
-      normalScale: new Vector2(0.08, 0.08),
-      color: "#e8d0d8",
-      roughness: 0.22,
-      metalness: 0,
-    });
-  }, [colorMap, normalMap, roughnessMap]);
+  const northDepth = poolMinZ - floorMinZ;
+  const southDepth = floorMaxZ - poolMaxZ;
+  const sideDepth = poolMaxZ - poolMinZ;
+  const westWidth = poolMinX - floorMinX;
+  const eastWidth = floorMaxX - poolMaxX;
 
-  useEffect(() => () => pillarMaterial.dispose(), [pillarMaterial]);
-  useEffect(() => () => floorMaterial.dispose(), [floorMaterial]);
+  const frameTopY = FLOOR_HEIGHT - FRAME_THICKNESS / 2;
+  const poolFloorTopY = FLOOR_HEIGHT - POOL_RECESS;
+  const poolFloorCenterY = poolFloorTopY - FRAME_THICKNESS / 2;
+  const poolWaterY = FLOOR_HEIGHT - POOL_WATER_DROP;
+
+  const slabs = useMemo(
+    () => [
+      {
+        key: "north",
+        size: [FLOOR_WIDTH, FRAME_THICKNESS, northDepth] as const,
+        position: [0, frameTopY, (floorMinZ + poolMinZ) / 2] as const,
+      },
+      {
+        key: "south",
+        size: [FLOOR_WIDTH, FRAME_THICKNESS, southDepth] as const,
+        position: [0, frameTopY, (poolMaxZ + floorMaxZ) / 2] as const,
+      },
+      {
+        key: "west",
+        size: [westWidth, FRAME_THICKNESS, sideDepth] as const,
+        position: [
+          (floorMinX + poolMinX) / 2,
+          frameTopY,
+          POOL_CENTER_Z,
+        ] as const,
+      },
+      {
+        key: "east",
+        size: [eastWidth, FRAME_THICKNESS, sideDepth] as const,
+        position: [
+          (poolMaxX + floorMaxX) / 2,
+          frameTopY,
+          POOL_CENTER_Z,
+        ] as const,
+      },
+    ],
+    [
+      eastWidth,
+      floorMaxX,
+      floorMinX,
+      floorMaxZ,
+      floorMinZ,
+      frameTopY,
+      northDepth,
+      poolMaxX,
+      poolMaxZ,
+      poolMinX,
+      poolMinZ,
+      sideDepth,
+      southDepth,
+      westWidth,
+    ],
+  );
+
+  const slabMaterials = useMemo(
+    () => slabs.map((s) => makeTiledMaterial(s.size[0], s.size[2])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slabs, colorMap, normalMap, roughnessMap],
+  );
+
+  const poolFloorMaterial = useMemo(
+    () => makeTiledMaterial(POOL_WIDTH, POOL_DEPTH),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [colorMap, normalMap, roughnessMap],
+  );
+
+  const poolWaterMaterial = useMemo(
+    () =>
+      new MeshStandardMaterial({
+        color: "#d4c8e2",
+        roughness: 0.06,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.72,
+      }),
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      slabMaterials.forEach((m) => m.dispose());
+      poolFloorMaterial.dispose();
+      poolWaterMaterial.dispose();
+    },
+    [slabMaterials, poolFloorMaterial, poolWaterMaterial],
+  );
 
   return (
-    <group position={[0, FLOOR_HEIGHT, 0]}>
-      <mesh position={[0, -0.38, 0]} receiveShadow>
-        <boxGeometry args={[FLOOR_WIDTH, 0.72, FLOOR_DEPTH]} />
-        <meshStandardMaterial color="#d4bcc6" roughness={0.22} metalness={0} />
+    <group>
+      {slabs.map((slab, i) => (
+        <mesh
+          key={slab.key}
+          position={slab.position as unknown as [number, number, number]}
+          material={slabMaterials[i]}
+          receiveShadow
+        >
+          <boxGeometry args={slab.size as unknown as [number, number, number]} />
+        </mesh>
+      ))}
+      <mesh
+        position={[POOL_CENTER_X, poolFloorCenterY, POOL_CENTER_Z]}
+        material={poolFloorMaterial}
+        receiveShadow
+      >
+        <boxGeometry args={[POOL_WIDTH, FRAME_THICKNESS, POOL_DEPTH]} />
       </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} material={floorMaterial}>
-        <planeGeometry args={[FLOOR_WIDTH, FLOOR_DEPTH]} />
+      <mesh
+        position={[POOL_CENTER_X, poolWaterY, POOL_CENTER_Z]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        material={poolWaterMaterial}
+      >
+        <planeGeometry args={[POOL_WIDTH - 0.05, POOL_DEPTH - 0.05]} />
       </mesh>
-      {/* <mesh
-        position={[0, PILLAR_HEIGHT / 2, 0]}
-        material={pillarMaterial}
+    </group>
+  );
+}
+
+function PlatoSign() {
+  const [colorMap, normalMap, roughnessMap] = useLoader(TextureLoader, [
+    "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Color.jpg",
+    "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_NormalGL.jpg",
+    "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Roughness.jpg",
+  ]);
+
+  const pedestalMaterial = useMemo(() => {
+    const repeatX = PEDESTAL_WIDTH / 6;
+    const repeatY = PEDESTAL_HEIGHT / 6;
+    return new MeshStandardMaterial({
+      map: configureRepeatingTexture(colorMap.clone(), repeatX, repeatY, true),
+      normalMap: configureRepeatingTexture(normalMap.clone(), repeatX, repeatY),
+      roughnessMap: configureRepeatingTexture(
+        roughnessMap.clone(),
+        repeatX,
+        repeatY,
+      ),
+      normalScale: new Vector2(0.08, 0.08),
+      color: "#ead4dc",
+      roughness: 0.3,
+      metalness: 0,
+    });
+  }, [colorMap, normalMap, roughnessMap]);
+
+  useEffect(() => () => pedestalMaterial.dispose(), [pedestalMaterial]);
+
+  const pedestalY = FLOOR_HEIGHT + PEDESTAL_HEIGHT / 2;
+  const textZ = PEDESTAL_DEPTH / 2 + 0.02;
+  const neonColor = useMemo(() => new Color(3.6, 1.0, 2.4), []);
+
+  return (
+    <group position={[PEDESTAL_CENTER_X, 0, PEDESTAL_CENTER_Z]}>
+      <mesh
+        position={[0, pedestalY, 0]}
+        material={pedestalMaterial}
         castShadow
-        receiveShadow>
-        <boxGeometry args={[PILLAR_WIDTH, PILLAR_HEIGHT, PILLAR_DEPTH]} />
-      </mesh> */}
+        receiveShadow
+      >
+        <boxGeometry args={[PEDESTAL_WIDTH, PEDESTAL_HEIGHT, PEDESTAL_DEPTH]} />
+      </mesh>
+      <Text
+        position={[0, FLOOR_HEIGHT + 7.5, textZ]}
+        fontSize={0.85}
+        anchorX="center"
+        anchorY="middle"
+        maxWidth={PEDESTAL_WIDTH - 0.4}
+        textAlign="center"
+      >
+        Plato's{"\n"}Cove
+        <meshBasicMaterial color={neonColor} toneMapped={false} />
+      </Text>
     </group>
   );
 }
@@ -473,6 +680,13 @@ export default function Scene() {
           depth: FLOOR_DEPTH,
           height: FLOOR_HEIGHT,
           texture: "bahtroom-walls2/Tiles105",
+          pool: {
+            centerX: POOL_CENTER_X,
+            centerZ: POOL_CENTER_Z,
+            width: POOL_WIDTH,
+            depth: POOL_DEPTH,
+            recess: POOL_RECESS,
+          },
         },
         sun: {
           elevation: SUN_ELEVATION,
@@ -525,8 +739,16 @@ export default function Scene() {
           luminanceSmoothing={0.5}
           radius={0.22}
         />
+        <ChromaticAberration
+          offset={new Vector2(0.0012, 0.0012)}
+          radialModulation
+          modulationOffset={0.45}
+        />
+        <Vignette eskil={false} offset={0.22} darkness={0.45} />
+        <Noise blendFunction={BlendFunction.OVERLAY} opacity={0.12} />
       </EffectComposer>
       <FloatingFloor />
+      <PlatoSign />
       <DoricColumns />
       <VaporwaveBust />
     </>

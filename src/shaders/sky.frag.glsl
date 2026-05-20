@@ -80,10 +80,14 @@ void main() {
   // === FBM CLOUDS ===
   if (h > 0.02) {
     vec2 uv = dir.xz / max(h, 0.05);
-    vec2 p = uv * 2.2 + vec2(uTime * 0.015, uTime * 0.006);
+    vec2 p = uv * 2.2 + vec2(uTime * 0.06, uTime * 0.025);
 
-    // Domain warping for organic, fluffy shapes
-    vec2 warp = vec2(fbm(p + vec2(1.7, 9.2)), fbm(p + vec2(8.3, 2.8)));
+    // Domain warping for organic, fluffy shapes — warp itself drifts so cloud
+    // morphology slowly evolves rather than just translating rigidly.
+    vec2 warp = vec2(
+      fbm(p + vec2(1.7, 9.2) + uTime * 0.04),
+      fbm(p + vec2(8.3, 2.8) - uTime * 0.03)
+    );
     float cn = fbm(p + warp * 1.5);
 
     float cloudShape = smoothstep(0.44, 0.60, cn);
