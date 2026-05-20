@@ -24,7 +24,7 @@ import skyVertexShader from "../shaders/sky.vert.glsl";
 import skyFragmentShader from "../shaders/sky.frag.glsl";
 
 const OCEAN_SIZE = 10000;
-const SUN_ELEVATION = 2;
+const SUN_ELEVATION = 8;
 const SUN_AZIMUTH = 180;
 const LOOK_SENSITIVITY = 0.002;
 const FLOOR_WIDTH = 90;
@@ -340,7 +340,7 @@ function FloatingFloor() {
       ),
       normalScale: new Vector2(0.08, 0.08),
       color: "#e8d0d8",
-      roughness: 0.82,
+      roughness: 0.22,
       metalness: 0,
     });
   }, [colorMap, normalMap, roughnessMap]);
@@ -359,7 +359,7 @@ function FloatingFloor() {
       ),
       normalScale: new Vector2(0.08, 0.08),
       color: "#e8d0d8",
-      roughness: 0.82,
+      roughness: 0.22,
       metalness: 0,
     });
   }, [colorMap, normalMap, roughnessMap]);
@@ -371,7 +371,7 @@ function FloatingFloor() {
     <group position={[0, FLOOR_HEIGHT, 0]}>
       <mesh position={[0, -0.38, 0]} receiveShadow>
         <boxGeometry args={[FLOOR_WIDTH, 0.72, FLOOR_DEPTH]} />
-        <meshStandardMaterial color="#d4bcc6" roughness={0.82} metalness={0} />
+        <meshStandardMaterial color="#d4bcc6" roughness={0.22} metalness={0} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} material={floorMaterial}>
         <planeGeometry args={[FLOOR_WIDTH, FLOOR_DEPTH]} />
@@ -405,6 +405,7 @@ export default function Scene() {
         side: BackSide,
         uniforms: {
           uSunDir: { value: sunDirection.clone() },
+          uTime: { value: 0 },
         },
       }),
     [sunDirection],
@@ -425,7 +426,7 @@ export default function Scene() {
       textureHeight: 512,
       waterNormals,
       sunDirection: new Vector3(),
-      sunColor: 0xffe8a0,
+      sunColor: 0xff33aa,
       waterColor: 0xe8c0d0,
       distortionScale: 2.0,
       fog: false,
@@ -492,11 +493,12 @@ export default function Scene() {
       });
   }, [camera, gl, playerSnapshot, water]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const waterObject = waterRef.current;
-    if (!waterObject) return;
-
-    getUniforms(waterObject).time.value += delta;
+    if (waterObject) {
+      getUniforms(waterObject).time.value += delta;
+    }
+    skyMaterial.uniforms.uTime.value = state.clock.getElapsedTime();
   });
 
   return (
@@ -506,7 +508,7 @@ export default function Scene() {
       <ambientLight color={0xe8cad8} intensity={1.5} />
       <hemisphereLight args={[0xb7b6d6, 0xe8bccf, 0.8]} />
       <directionalLight
-        color={0xffc4a2}
+        color="#ff6ea5"
         intensity={3.7}
         position={[
           sunDirection.x * 500,
