@@ -813,11 +813,11 @@ export default function Scene() {
     <>
       <primitive object={skyMesh} />
       <primitive ref={waterRef} object={water} />
-      <ambientLight color={0xe8cad8} intensity={1.5} />
-      <hemisphereLight args={[0xb7b6d6, 0xe8bccf, 0.8]} />
+      <ambientLight color={0xe8cad8} intensity={1.3} />
+      <hemisphereLight args={[0xb7b6d6, 0xe8bccf, 0.5]} />
       <directionalLight
         color="#ff6ea5"
-        intensity={3.7}
+        intensity={2.7}
         position={[
           sunDirection.x * 500,
           sunDirection.y * 500,
