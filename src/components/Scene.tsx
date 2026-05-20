@@ -40,12 +40,13 @@ const FLOOR_DEPTH = 50;
 const FLOOR_HEIGHT = 5.2;
 const FLOOR_TEXTURE_WORLD_SIZE = 12;
 const FRAME_THICKNESS = 1.9;
-const POOL_WIDTH = 24;
-const POOL_DEPTH = 22;
+const POOL_WIDTH = 17;
+const POOL_DEPTH = 14;
 const POOL_CENTER_X = 0;
 const POOL_CENTER_Z = -2;
 const POOL_RECESS = 1.7;
 const POOL_WATER_DROP = 0.45;
+const COLUMN_HALF = 1.3;
 const PEDESTAL_WIDTH = 4.2;
 const PEDESTAL_HEIGHT = 12.5;
 const PEDESTAL_DEPTH = 4.2;
@@ -255,6 +256,10 @@ function useGroundedPlayer() {
       PEDESTAL_DEPTH,
     );
 
+    for (const [cx, , cz] of COLUMN_POSITIONS) {
+      pushOutOfAabb(camera, velocity, cx, cz, COLUMN_HALF * 2, COLUMN_HALF * 2);
+    }
+
     snapshot.current = {
       x: Number(camera.position.x.toFixed(3)),
       y: Number(camera.position.y.toFixed(3)),
@@ -381,6 +386,34 @@ function VaporwaveBust() {
   );
 }
 
+function WomanStatue() {
+  const { scene } = useGLTF("/models/statue/woman1_aiSkin1_0.001.glb");
+  return (
+    <primitive
+      object={scene}
+      position={[
+        PEDESTAL_CENTER_X,
+        FLOOR_HEIGHT + PEDESTAL_HEIGHT,
+        PEDESTAL_CENTER_Z,
+      ]}
+      rotation={[0, 2 * Math.PI, 0]}
+      scale={[3, 3, 3]}
+    />
+  );
+}
+
+function FloorDoor() {
+  const { scene } = useGLTF("/models/door/door.glb");
+  return (
+    <primitive
+      object={scene}
+      position={[6, FLOOR_HEIGHT, -FLOOR_DEPTH / 2 + 0.5]}
+      rotation={[0, 0, 0]}
+      scale={[1, 1, 1]}
+    />
+  );
+}
+
 function FloatingFloor() {
   const [colorMap, normalMap, roughnessMap] = useLoader(TextureLoader, [
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Color.jpg",
@@ -388,9 +421,13 @@ function FloatingFloor() {
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Roughness.jpg",
   ]);
 
-  const makeTiledMaterial = (width: number, depth: number) => {
-    const repeatX = width / FLOOR_TEXTURE_WORLD_SIZE;
-    const repeatY = depth / FLOOR_TEXTURE_WORLD_SIZE;
+  const makeTiledMaterial = (
+    width: number,
+    height: number,
+    worldSize = FLOOR_TEXTURE_WORLD_SIZE,
+  ) => {
+    const repeatX = width / worldSize;
+    const repeatY = height / worldSize;
     return new MeshStandardMaterial({
       map: configureRepeatingTexture(colorMap.clone(), repeatX, repeatY, true),
       normalMap: configureRepeatingTexture(normalMap.clone(), repeatX, repeatY),
@@ -487,6 +524,16 @@ function FloatingFloor() {
     [colorMap, normalMap, roughnessMap],
   );
 
+  const WALL_TILE_WORLD_SIZE = POOL_RECESS;
+  const poolWallMaterials = useMemo(
+    () => ({
+      ns: makeTiledMaterial(POOL_WIDTH, POOL_RECESS, WALL_TILE_WORLD_SIZE),
+      ew: makeTiledMaterial(POOL_DEPTH, POOL_RECESS, WALL_TILE_WORLD_SIZE),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [colorMap, normalMap, roughnessMap, WALL_TILE_WORLD_SIZE],
+  );
+
   const poolWaterMaterial = useMemo(
     () =>
       new MeshStandardMaterial({
@@ -504,9 +551,14 @@ function FloatingFloor() {
       slabMaterials.forEach((m) => m.dispose());
       poolFloorMaterial.dispose();
       poolWaterMaterial.dispose();
+      poolWallMaterials.ns.dispose();
+      poolWallMaterials.ew.dispose();
     },
-    [slabMaterials, poolFloorMaterial, poolWaterMaterial],
+    [slabMaterials, poolFloorMaterial, poolWaterMaterial, poolWallMaterials],
   );
+
+  const wallCenterY = poolFloorTopY + POOL_RECESS / 2;
+  const wallEpsilon = 0.012;
 
   return (
     <group>
@@ -515,23 +567,45 @@ function FloatingFloor() {
           key={slab.key}
           position={slab.position as unknown as [number, number, number]}
           material={slabMaterials[i]}
-          receiveShadow
-        >
-          <boxGeometry args={slab.size as unknown as [number, number, number]} />
+          receiveShadow>
+          <boxGeometry
+            args={slab.size as unknown as [number, number, number]}
+          />
         </mesh>
       ))}
       <mesh
         position={[POOL_CENTER_X, poolFloorCenterY, POOL_CENTER_Z]}
         material={poolFloorMaterial}
-        receiveShadow
-      >
+        receiveShadow>
         <boxGeometry args={[POOL_WIDTH, FRAME_THICKNESS, POOL_DEPTH]} />
+      </mesh>
+      <mesh
+        position={[POOL_CENTER_X, wallCenterY, poolMinZ + wallEpsilon]}
+        material={poolWallMaterials.ns}>
+        <planeGeometry args={[POOL_WIDTH, POOL_RECESS]} />
+      </mesh>
+      <mesh
+        position={[POOL_CENTER_X, wallCenterY, poolMaxZ - wallEpsilon]}
+        rotation={[0, Math.PI, 0]}
+        material={poolWallMaterials.ns}>
+        <planeGeometry args={[POOL_WIDTH, POOL_RECESS]} />
+      </mesh>
+      <mesh
+        position={[poolMaxX - wallEpsilon, wallCenterY, POOL_CENTER_Z]}
+        rotation={[0, -Math.PI / 2, 0]}
+        material={poolWallMaterials.ew}>
+        <planeGeometry args={[POOL_DEPTH, POOL_RECESS]} />
+      </mesh>
+      <mesh
+        position={[poolMinX + wallEpsilon, wallCenterY, POOL_CENTER_Z]}
+        rotation={[0, Math.PI / 2, 0]}
+        material={poolWallMaterials.ew}>
+        <planeGeometry args={[POOL_DEPTH, POOL_RECESS]} />
       </mesh>
       <mesh
         position={[POOL_CENTER_X, poolWaterY, POOL_CENTER_Z]}
         rotation={[-Math.PI / 2, 0, 0]}
-        material={poolWaterMaterial}
-      >
+        material={poolWaterMaterial}>
         <planeGeometry args={[POOL_WIDTH - 0.05, POOL_DEPTH - 0.05]} />
       </mesh>
     </group>
@@ -567,7 +641,7 @@ function PlatoSign() {
 
   const pedestalY = FLOOR_HEIGHT + PEDESTAL_HEIGHT / 2;
   const textZ = PEDESTAL_DEPTH / 2 + 0.02;
-  const neonColor = useMemo(() => new Color(3.6, 1.0, 2.4), []);
+  const neonColor = useMemo(() => new Color(2.2, 0.45, 1.4), []);
 
   return (
     <group position={[PEDESTAL_CENTER_X, 0, PEDESTAL_CENTER_Z]}>
@@ -575,8 +649,7 @@ function PlatoSign() {
         position={[0, pedestalY, 0]}
         material={pedestalMaterial}
         castShadow
-        receiveShadow
-      >
+        receiveShadow>
         <boxGeometry args={[PEDESTAL_WIDTH, PEDESTAL_HEIGHT, PEDESTAL_DEPTH]} />
       </mesh>
       <Text
@@ -585,8 +658,7 @@ function PlatoSign() {
         anchorX="center"
         anchorY="middle"
         maxWidth={PEDESTAL_WIDTH - 0.4}
-        textAlign="center"
-      >
+        textAlign="center">
         Plato's{"\n"}Cove
         <meshBasicMaterial color={neonColor} toneMapped={false} />
       </Text>
@@ -751,6 +823,8 @@ export default function Scene() {
       <PlatoSign />
       <DoricColumns />
       <VaporwaveBust />
+      <WomanStatue />
+      <FloorDoor />
     </>
   );
 }
