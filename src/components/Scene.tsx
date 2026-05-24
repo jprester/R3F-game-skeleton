@@ -358,10 +358,13 @@ function configureRepeatingTexture(
   repeatX: number,
   repeatY: number,
   isColorMap = false,
+  offsetX = 0,
+  offsetY = 0,
 ) {
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
+  texture.offset.set(offsetX, offsetY);
   texture.anisotropy = 8;
   if (isColorMap) {
     texture.colorSpace = SRGBColorSpace;
@@ -440,16 +443,36 @@ function FloatingFloor() {
     width: number,
     height: number,
     worldSize = FLOOR_TEXTURE_WORLD_SIZE,
+    offsetX = 0,
+    offsetY = 0,
+    repeatXSign = 1,
   ) => {
-    const repeatX = width / worldSize;
+    const repeatX = (width / worldSize) * repeatXSign;
     const repeatY = height / worldSize;
     return new MeshStandardMaterial({
-      map: configureRepeatingTexture(colorMap.clone(), repeatX, repeatY, true),
-      normalMap: configureRepeatingTexture(normalMap.clone(), repeatX, repeatY),
+      map: configureRepeatingTexture(
+        colorMap.clone(),
+        repeatX,
+        repeatY,
+        true,
+        offsetX,
+        offsetY,
+      ),
+      normalMap: configureRepeatingTexture(
+        normalMap.clone(),
+        repeatX,
+        repeatY,
+        false,
+        offsetX,
+        offsetY,
+      ),
       roughnessMap: configureRepeatingTexture(
         roughnessMap.clone(),
         repeatX,
         repeatY,
+        false,
+        offsetX,
+        offsetY,
       ),
       normalScale: new Vector2(0.08, 0.08),
       color: "#e8d0d8",
@@ -457,6 +480,12 @@ function FloatingFloor() {
       metalness: 0,
     });
   };
+
+  const floorOffset = (centerX: number, centerZ: number, w: number, d: number) =>
+    [
+      (centerX - w / 2) / FLOOR_TEXTURE_WORLD_SIZE,
+      -(centerZ + d / 2) / FLOOR_TEXTURE_WORLD_SIZE,
+    ] as const;
 
   const poolMinX = POOL_CENTER_X - POOL_WIDTH / 2;
   const poolMaxX = POOL_CENTER_X + POOL_WIDTH / 2;
@@ -528,26 +557,79 @@ function FloatingFloor() {
   );
 
   const slabMaterials = useMemo(
-    () => slabs.map((s) => makeTiledMaterial(s.size[0], s.size[2])),
+    () =>
+      slabs.map((s) => {
+        const [w, , d] = s.size;
+        const [cx, , cz] = s.position;
+        const [offsetX, offsetY] = floorOffset(cx, cz, w, d);
+        return makeTiledMaterial(
+          w,
+          d,
+          FLOOR_TEXTURE_WORLD_SIZE,
+          offsetX,
+          offsetY,
+        );
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [slabs, colorMap, normalMap, roughnessMap],
   );
 
-  const poolFloorMaterial = useMemo(
-    () => makeTiledMaterial(POOL_WIDTH, POOL_DEPTH),
+  const poolFloorMaterial = useMemo(() => {
+    const [offsetX, offsetY] = floorOffset(
+      POOL_CENTER_X,
+      POOL_CENTER_Z,
+      POOL_WIDTH,
+      POOL_DEPTH,
+    );
+    return makeTiledMaterial(
+      POOL_WIDTH,
+      POOL_DEPTH,
+      FLOOR_TEXTURE_WORLD_SIZE,
+      offsetX,
+      offsetY,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [colorMap, normalMap, roughnessMap],
-  );
+  }, [colorMap, normalMap, roughnessMap]);
 
   const WALL_TILE_WORLD_SIZE = FLOOR_TEXTURE_WORLD_SIZE;
-  const poolWallMaterials = useMemo(
-    () => ({
-      ns: makeTiledMaterial(POOL_WIDTH, POOL_RECESS, WALL_TILE_WORLD_SIZE),
-      ew: makeTiledMaterial(POOL_DEPTH, POOL_RECESS, WALL_TILE_WORLD_SIZE),
-    }),
+  const poolWallMaterials = useMemo(() => {
+    // Walls share the floor's tile size and align horizontally with world X/Z
+    // so wall and floor tile grid lines meet at the pool's lip. The top of each
+    // wall is set to a tile boundary so the partial tile sits at the bottom.
+    const wallVOffset = -POOL_RECESS / WALL_TILE_WORLD_SIZE;
+    const nsFront = makeTiledMaterial(
+      POOL_WIDTH,
+      POOL_RECESS,
+      WALL_TILE_WORLD_SIZE,
+      (POOL_CENTER_X - POOL_WIDTH / 2) / WALL_TILE_WORLD_SIZE,
+      wallVOffset,
+    );
+    const nsBack = makeTiledMaterial(
+      POOL_WIDTH,
+      POOL_RECESS,
+      WALL_TILE_WORLD_SIZE,
+      (POOL_CENTER_X + POOL_WIDTH / 2) / WALL_TILE_WORLD_SIZE,
+      wallVOffset,
+      -1,
+    );
+    const ewEast = makeTiledMaterial(
+      POOL_DEPTH,
+      POOL_RECESS,
+      WALL_TILE_WORLD_SIZE,
+      (POOL_CENTER_Z - POOL_DEPTH / 2) / WALL_TILE_WORLD_SIZE,
+      wallVOffset,
+    );
+    const ewWest = makeTiledMaterial(
+      POOL_DEPTH,
+      POOL_RECESS,
+      WALL_TILE_WORLD_SIZE,
+      (POOL_CENTER_Z + POOL_DEPTH / 2) / WALL_TILE_WORLD_SIZE,
+      wallVOffset,
+      -1,
+    );
+    return { nsFront, nsBack, ewEast, ewWest };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [colorMap, normalMap, roughnessMap, WALL_TILE_WORLD_SIZE],
-  );
+  }, [colorMap, normalMap, roughnessMap, WALL_TILE_WORLD_SIZE]);
 
   const poolWaterMaterial = useMemo(
     () =>
@@ -566,8 +648,10 @@ function FloatingFloor() {
       slabMaterials.forEach((m) => m.dispose());
       poolFloorMaterial.dispose();
       poolWaterMaterial.dispose();
-      poolWallMaterials.ns.dispose();
-      poolWallMaterials.ew.dispose();
+      poolWallMaterials.nsFront.dispose();
+      poolWallMaterials.nsBack.dispose();
+      poolWallMaterials.ewEast.dispose();
+      poolWallMaterials.ewWest.dispose();
     },
     [slabMaterials, poolFloorMaterial, poolWaterMaterial, poolWallMaterials],
   );
@@ -596,25 +680,25 @@ function FloatingFloor() {
       </mesh>
       <mesh
         position={[POOL_CENTER_X, wallCenterY, poolMinZ + wallEpsilon]}
-        material={poolWallMaterials.ns}>
+        material={poolWallMaterials.nsFront}>
         <planeGeometry args={[POOL_WIDTH, POOL_RECESS]} />
       </mesh>
       <mesh
         position={[POOL_CENTER_X, wallCenterY, poolMaxZ - wallEpsilon]}
         rotation={[0, Math.PI, 0]}
-        material={poolWallMaterials.ns}>
+        material={poolWallMaterials.nsBack}>
         <planeGeometry args={[POOL_WIDTH, POOL_RECESS]} />
       </mesh>
       <mesh
         position={[poolMaxX - wallEpsilon, wallCenterY, POOL_CENTER_Z]}
         rotation={[0, -Math.PI / 2, 0]}
-        material={poolWallMaterials.ew}>
+        material={poolWallMaterials.ewEast}>
         <planeGeometry args={[POOL_DEPTH, POOL_RECESS]} />
       </mesh>
       <mesh
         position={[poolMinX + wallEpsilon, wallCenterY, POOL_CENTER_Z]}
         rotation={[0, Math.PI / 2, 0]}
-        material={poolWallMaterials.ew}>
+        material={poolWallMaterials.ewWest}>
         <planeGeometry args={[POOL_DEPTH, POOL_RECESS]} />
       </mesh>
       <mesh
