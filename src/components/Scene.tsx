@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Text, useGLTF } from "@react-three/drei";
+import { Environment, Text, useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
   Bloom,
@@ -15,6 +15,7 @@ import {
   Euler,
   Fog,
   Mesh,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   MathUtils,
   PlaneGeometry,
@@ -449,7 +450,7 @@ function FloatingFloor() {
   ) => {
     const repeatX = (width / worldSize) * repeatXSign;
     const repeatY = height / worldSize;
-    return new MeshStandardMaterial({
+    return new MeshPhysicalMaterial({
       map: configureRepeatingTexture(
         colorMap.clone(),
         repeatX,
@@ -474,14 +475,23 @@ function FloatingFloor() {
         offsetX,
         offsetY,
       ),
-      normalScale: new Vector2(0.08, 0.08),
+      normalScale: new Vector2(0.18, 0.18),
       color: "#e8d0d8",
-      roughness: 0.32,
+      roughness: 0.22,
       metalness: 0,
+      // Clearcoat is the wet/glazed varnish layer on top of the ceramic base.
+      clearcoat: 0.85,
+      clearcoatRoughness: 0.06,
+      envMapIntensity: 0.55,
     });
   };
 
-  const floorOffset = (centerX: number, centerZ: number, w: number, d: number) =>
+  const floorOffset = (
+    centerX: number,
+    centerZ: number,
+    w: number,
+    d: number,
+  ) =>
     [
       (centerX - w / 2) / FLOOR_TEXTURE_WORLD_SIZE,
       -(centerZ + d / 2) / FLOOR_TEXTURE_WORLD_SIZE,
@@ -925,6 +935,7 @@ export default function Scene() {
         <Vignette eskil={false} offset={0.22} darkness={0.45} />
         <Noise blendFunction={BlendFunction.OVERLAY} opacity={0.12} />
       </EffectComposer>
+      {/* <Environment preset="sunset" environmentIntensity={0.05} /> */}
       <FloatingFloor />
       <PlatoSign />
       <DoricColumns />
