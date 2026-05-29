@@ -825,11 +825,11 @@ export default function Scene() {
     bloomThreshold: { value: 1.45, min: 0, max: 3, step: 0.01 },
     bloomSmoothing: { value: 0.5, min: 0, max: 1, step: 0.01 },
     bloomRadius: { value: 0.22, min: 0, max: 1, step: 0.01 },
-    chromaticOffset: { value: 0.003, min: 0, max: 0.009, step: 0.001 },
+    chromaticOffset: { value: 0.002, min: 0, max: 0.009, step: 0.001 },
     modulationOffset: { value: 0.45, min: 0, max: 1, step: 0.01 },
-    vignetteOffset: { value: 0.5, min: 0, max: 1, step: 0.01 },
-    vignetteDarkness: { value: 0.65, min: 0, max: 1, step: 0.01 },
-    noiseOpacity: { value: 0.25, min: 0, max: 1, step: 0.01 },
+    vignetteOffset: { value: 0.4, min: 0, max: 1, step: 0.01 },
+    vignetteDarkness: { value: 0.35, min: 0, max: 1, step: 0.01 },
+    noiseOpacity: { value: 0.15, min: 0, max: 1, step: 0.01 },
   });
 
   const chromaticAberrationOffset = useMemo(

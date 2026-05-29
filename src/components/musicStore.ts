@@ -16,6 +16,7 @@ interface Snapshot {
   hasStarted: boolean;
   currentIndex: number;
   trackLabel: string;
+  nearBoombox: boolean;
 }
 
 let audioElements: HTMLAudioElement[] = [];
@@ -25,6 +26,7 @@ let isMuted = false;
 let hasStarted = false;
 let distanceVolume = 1;
 let lastWrittenVolume = -1;
+let nearBoombox = false;
 
 let snapshot: Snapshot = {
   isPlaying: false,
@@ -32,6 +34,7 @@ let snapshot: Snapshot = {
   hasStarted: false,
   currentIndex: 0,
   trackLabel: TRACK_LABELS[0],
+  nearBoombox: false,
 };
 
 const listeners = new Set<() => void>();
@@ -43,6 +46,7 @@ function notify() {
     hasStarted,
     currentIndex,
     trackLabel: TRACK_LABELS[currentIndex] ?? `Track ${currentIndex + 1}`,
+    nearBoombox,
   };
   listeners.forEach((l) => l());
 }
@@ -127,6 +131,12 @@ export function toggleMute() {
 export function setDistanceVolume(v: number) {
   distanceVolume = Math.max(0, Math.min(1, v));
   writeVolume();
+}
+
+export function setNearBoombox(v: boolean) {
+  if (v === nearBoombox) return;
+  nearBoombox = v;
+  notify();
 }
 
 export function subscribe(listener: () => void) {

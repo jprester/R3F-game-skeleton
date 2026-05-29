@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useGLTF } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Box3, Group } from "three";
-import { setDistanceVolume } from "./musicStore";
+import { Box3, Group, Vector3 } from "three";
+import { setDistanceVolume, setNearBoombox } from "./musicStore";
 
 // Table + boombox + chair arrangement built from .glb models. The boombox is
 // the audio source: a child <DistanceVolume /> reads the player's distance and
@@ -22,13 +22,18 @@ const CHAIR_YAW = Math.PI / 5;
 
 const AUDIO_REF_DISTANCE = 6;
 const AUDIO_MAX_DISTANCE = 45;
+const INTERACT_DISTANCE = 9;
+const FOCUS_DOT_THRESHOLD = 0.55; // ~57° half-angle
 
 function DistanceVolume() {
   const camera = useThree((s) => s.camera);
+  const camDir = useRef(new Vector3());
+
   useFrame(() => {
     const dx = camera.position.x - BOOMBOX_CENTER_X;
     const dz = camera.position.z - BOOMBOX_CENTER_Z;
     const dist = Math.sqrt(dx * dx + dz * dz);
+
     if (dist <= AUDIO_REF_DISTANCE) {
       setDistanceVolume(1);
     } else if (dist >= AUDIO_MAX_DISTANCE) {
@@ -38,6 +43,16 @@ function DistanceVolume() {
         (dist - AUDIO_REF_DISTANCE) /
         (AUDIO_MAX_DISTANCE - AUDIO_REF_DISTANCE);
       setDistanceVolume(1 - t);
+    }
+
+    if (dist <= INTERACT_DISTANCE) {
+      camera.getWorldDirection(camDir.current);
+      // horizontal dot product toward the boombox
+      const invDist = 1 / (dist || 1);
+      const dot = camDir.current.x * (-dx * invDist) + camDir.current.z * (-dz * invDist);
+      setNearBoombox(dot >= FOCUS_DOT_THRESHOLD);
+    } else {
+      setNearBoombox(false);
     }
   });
   return null;

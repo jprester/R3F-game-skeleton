@@ -69,6 +69,7 @@ export default function UI() {
         isMuted={music.isMuted}
         hasStarted={music.hasStarted}
         trackLabel={music.trackLabel}
+        visible={music.nearBoombox}
       />
     </>
   );
@@ -79,6 +80,7 @@ interface MusicControlsProps {
   isMuted: boolean;
   hasStarted: boolean;
   trackLabel: string;
+  visible: boolean;
 }
 
 function MusicControls({
@@ -86,6 +88,7 @@ function MusicControls({
   isMuted,
   hasStarted,
   trackLabel,
+  visible,
 }: MusicControlsProps) {
   const statusLabel = !hasStarted
     ? "Music off"
@@ -97,8 +100,9 @@ function MusicControls({
     <div
       style={{
         position: "absolute",
-        bottom: 20,
-        right: 20,
+        bottom: "50%",
+        left: "50%",
+        transform: "translate(-50%, 50%)",
         color: "white",
         fontFamily: "monospace",
         fontSize: 12,
@@ -110,6 +114,9 @@ function MusicControls({
         flexDirection: "column",
         gap: 8,
         minWidth: 180,
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? "auto" : "none",
+        transition: "opacity 0.3s ease",
       }}>
       <div style={{ opacity: 0.85 }}>{statusLabel}</div>
       <div style={{ display: "flex", gap: 6 }}>
