@@ -773,7 +773,9 @@ function PlatoSign() {
   const neonCore = useMemo(() => new Color(3.2, 0.65, 1.9), []);
 
   return (
-    <group name="plato-sign" position={[PEDESTAL_CENTER_X, 0, PEDESTAL_CENTER_Z]}>
+    <group
+      name="plato-sign"
+      position={[PEDESTAL_CENTER_X, 0, PEDESTAL_CENTER_Z]}>
       <mesh
         name="pedestal"
         position={[0, pedestalY, 0]}
@@ -810,7 +812,7 @@ export default function Scene() {
 
   const lights = useControls("Lights", {
     ambientColor: "#e8cad8",
-    ambientIntensity: { value: 1.3, min: 0, max: 5, step: 0.1 },
+    ambientIntensity: { value: 1.8, min: 0, max: 5, step: 0.1 },
     hemiSkyColor: "#b7b6d6",
     hemiGroundColor: "#e8bccf",
     hemiIntensity: { value: 0.5, min: 0, max: 5, step: 0.1 },
@@ -823,11 +825,11 @@ export default function Scene() {
     bloomThreshold: { value: 1.45, min: 0, max: 3, step: 0.01 },
     bloomSmoothing: { value: 0.5, min: 0, max: 1, step: 0.01 },
     bloomRadius: { value: 0.22, min: 0, max: 1, step: 0.01 },
-    chromaticOffset: { value: 0.0012, min: 0, max: 0.01, step: 0.0001 },
+    chromaticOffset: { value: 0.003, min: 0, max: 0.009, step: 0.001 },
     modulationOffset: { value: 0.45, min: 0, max: 1, step: 0.01 },
-    vignetteOffset: { value: 0.22, min: 0, max: 1, step: 0.01 },
-    vignetteDarkness: { value: 0.45, min: 0, max: 1, step: 0.01 },
-    noiseOpacity: { value: 0.12, min: 0, max: 1, step: 0.01 },
+    vignetteOffset: { value: 0.5, min: 0, max: 1, step: 0.01 },
+    vignetteDarkness: { value: 0.65, min: 0, max: 1, step: 0.01 },
+    noiseOpacity: { value: 0.25, min: 0, max: 1, step: 0.01 },
   });
 
   const chromaticAberrationOffset = useMemo(
@@ -997,7 +999,10 @@ export default function Scene() {
           offset={effects.vignetteOffset}
           darkness={effects.vignetteDarkness}
         />
-        <Noise blendFunction={BlendFunction.OVERLAY} opacity={effects.noiseOpacity} />
+        <Noise
+          blendFunction={BlendFunction.OVERLAY}
+          opacity={effects.noiseOpacity}
+        />
       </EffectComposer>
       {/* <Environment preset="sunset" environmentIntensity={0.05} /> */}
       <FloatingFloor />
