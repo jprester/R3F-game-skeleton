@@ -130,6 +130,18 @@ function useGroundedPlayer() {
   }, [camera, velocity]);
 
   useEffect(() => {
+    // Debug hook for screenshot tooling (scripts/shot.mjs): aim the camera
+    // without pointer lock. The useFrame loop applies yaw/pitch every frame.
+    window.setCameraOrientation = (y: number, p: number) => {
+      yaw.current = y;
+      pitch.current = MathUtils.clamp(p, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+    };
+    return () => {
+      delete window.setCameraOrientation;
+    };
+  }, [pitch, yaw]);
+
+  useEffect(() => {
     const canvas = gl.domElement;
 
     const requestLock = () => {
@@ -452,6 +464,22 @@ function FloatingFloor() {
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_NormalGL.jpg",
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Roughness.jpg",
   ]);
+  const waterNormals = useLoader(TextureLoader, "/textures/waternormals.jpg");
+
+  // Tiling ripple normals for the pool surface (animated in useFrame below).
+  const poolNormals = useMemo(() => {
+    const t = waterNormals.clone();
+    t.wrapS = RepeatWrapping;
+    t.wrapT = RepeatWrapping;
+    t.repeat.set(3, 2.5);
+    t.needsUpdate = true;
+    return t;
+  }, [waterNormals]);
+
+  useFrame((_, delta) => {
+    poolNormals.offset.x += delta * 0.02;
+    poolNormals.offset.y += delta * 0.015;
+  });
 
   const makeTiledMaterial = (
     width: number,
@@ -657,13 +685,19 @@ function FloatingFloor() {
   const poolWaterMaterial = useMemo(
     () =>
       new MeshStandardMaterial({
-        color: "#d4c8e2",
-        roughness: 0.06,
-        metalness: 0.05,
+        color: "#8fc4cb",
+        // A touch of cyan self-illumination keeps the water from greying out under
+        // the scene's pink light, while staying pastel/harmonized with the palette.
+        emissive: new Color("#2a626b"),
+        emissiveIntensity: 0.25,
+        roughness: 0.14,
+        metalness: 0.1,
+        normalMap: poolNormals,
+        normalScale: new Vector2(0.35, 0.35),
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.85,
       }),
-    [],
+    [poolNormals],
   );
 
   useEffect(
@@ -671,12 +705,19 @@ function FloatingFloor() {
       slabMaterials.forEach((m) => m.dispose());
       poolFloorMaterial.dispose();
       poolWaterMaterial.dispose();
+      poolNormals.dispose();
       poolWallMaterials.nsFront.dispose();
       poolWallMaterials.nsBack.dispose();
       poolWallMaterials.ewEast.dispose();
       poolWallMaterials.ewWest.dispose();
     },
-    [slabMaterials, poolFloorMaterial, poolWaterMaterial, poolWallMaterials],
+    [
+      slabMaterials,
+      poolFloorMaterial,
+      poolWaterMaterial,
+      poolWallMaterials,
+      poolNormals,
+    ],
   );
 
   const wallCenterY = poolFloorTopY + POOL_RECESS / 2;
@@ -802,6 +843,14 @@ function PlatoSign() {
         Plato's{"\n"}Cove
         <meshBasicMaterial color={neonCore} toneMapped={false} />
       </Text>
+      <pointLight
+        name="neon-sign-glow"
+        position={[0, FLOOR_HEIGHT + 7.6, textZ + 1.1]}
+        color="#ff5cb0"
+        intensity={9}
+        distance={10}
+        decay={2}
+      />
     </group>
   );
 }
@@ -874,7 +923,7 @@ export default function Scene() {
       waterNormals,
       sunDirection: new Vector3(),
       sunColor: 0xff33aa,
-      waterColor: 0xe8c0d0,
+      waterColor: 0x4fb8c4,
       distortionScale: 2.0,
       fog: false,
     });

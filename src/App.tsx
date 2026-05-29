@@ -1,11 +1,19 @@
 import { ACESFilmicToneMapping } from "three";
 import { Canvas } from "@react-three/fiber";
+import { Leva } from "leva";
+
 import Scene from "./components/Scene";
 import UI from "./components/UI";
 
 export default function App() {
+  // ?qa=1 hides dev overlays (Leva panel) for clean headless screenshots.
+  const isQaMode =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("qa") === "1";
+
   return (
     <>
+      <Leva hidden={isQaMode} />
       <Canvas
         shadows
         camera={{ fov: 55, near: 1, far: 20000, position: [30, 30, 100] }}

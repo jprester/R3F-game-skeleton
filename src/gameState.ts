@@ -121,5 +121,7 @@ declare global {
     __poolroomGameState?: PoolroomGameState;
     render_game_to_text?: () => string;
     advanceTime?: (ms: number) => void | Promise<void>;
+    // Debug hook used by scripts/shot.mjs to aim the camera for screenshots.
+    setCameraOrientation?: (yaw: number, pitch: number) => void;
   }
 }

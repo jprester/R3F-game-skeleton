@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "shot": "node scripts/shot.mjs"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +30,7 @@
     "vite": "^7.3.0"
   },
   "devDependencies": {
+    "playwright": "^1.60.0",
     "vite-plugin-glsl": "^1.6.0"
   }
 }

@@ -41,39 +41,45 @@ void main() {
 
   // Sky gradient: warm peach-pink horizon -> muted lavender mid -> blue-grey top (adjusted to match reference image)
   vec3 skyHorizon = vec3(0.92, 0.68, 0.76);
-  vec3 skyMid     = vec3(0.80, 0.66, 0.78);
-  vec3 skyTop     = vec3(0.68, 0.65, 0.75);
+  vec3 skyMid     = vec3(0.78, 0.66, 0.78);
+  vec3 skyTop     = vec3(0.60, 0.62, 0.73);
   vec3 color = mix(skyHorizon, skyMid, smoothstep(0.0, 0.45, h));
   color = mix(color, skyTop, smoothstep(0.25, 0.95, h));
 
-  // === SUN ===
+  // === RETRO SUN ===
   vec3 sunDir = normalize(uSunDir);
   float angle = acos(clamp(dot(dir, sunDir), -1.0, 1.0));
-  float sunR = 0.15;
+  float sunR = 0.18;
 
-  // Pink atmospheric glow (enhanced for vaporwave theme)
-  color += vec3(2.0, 0.35, 1.5) * exp(-angle * 4.5) * 0.55;
+  // Pink atmospheric glow — kept tight so it halos the sun without washing the whole sky
+  color += vec3(1.9, 0.45, 1.35) * exp(-angle * 6.0) * 0.5;
 
   if (angle < sunR) {
     // yNorm goes from 0.0 (bottom of sun) to 1.0 (top of sun)
     float yNorm = clamp((dir.y - sunDir.y) / sunR * 0.5 + 0.5, 0.0, 1.0);
 
-    // Neon cyan bottom -> Neon magenta top (adjusted slightly lower HDR to reduce bloom washout)
-    vec3 sunColor = mix(vec3(0.2, 1.8, 2.5), vec3(2.5, 0.35, 1.5), yNorm);
+    // Neon cyan bottom -> hot core -> magenta top (classic synthwave ramp)
+    vec3 cyan    = vec3(0.30, 1.7, 2.4);
+    vec3 magenta = vec3(2.4, 0.45, 1.6);
+    vec3 sunColor = mix(cyan, magenta, smoothstep(0.0, 1.0, yNorm));
 
-    // Horizontal scan lines/stripes (synthwave style, starting slightly above the center)
+    // Bright near-white band just above the equator where pink meets cyan
+    float core = exp(-pow((yNorm - 0.55) * 6.5, 2.0));
+    sunColor += vec3(1.5, 1.15, 1.5) * core;
+
+    // Horizontal scan lines confined to the lower (cyan) half; dissolve toward the bottom
     float scanMask = 1.0;
-    if (yNorm < 0.65) {
-      // Map yNorm in [0.0, 0.65] to t in [0.0, 1.0] from top of stripes (solid) to bottom (thin bars)
-      float t = (0.65 - yNorm) / 0.65;
-      float wave = sin(yNorm * 75.0);
-      
-      // Threshold ranges from -1.0 (at t = 0.0) to +0.92 (at t = 1.0)
-      float thresh = -1.0 + 1.92 * pow(t, 1.1);
+    if (yNorm < 0.5) {
+      // Map yNorm in [0.0, 0.5] to t in [0.0, 1.0] from top of stripes (solid) to bottom (thin bars)
+      float t = (0.5 - yNorm) / 0.5;
+      float wave = sin(yNorm * 90.0);
+
+      // Threshold ranges from -1.0 (at t = 0.0) to +0.95 (at t = 1.0)
+      float thresh = -1.0 + 1.95 * pow(t, 1.15);
       scanMask = smoothstep(thresh - 0.06, thresh + 0.06, wave);
     }
 
-    float edge = smoothstep(sunR, sunR * 0.88, angle);
+    float edge = smoothstep(sunR, sunR * 0.9, angle);
     color = mix(color, sunColor, scanMask * edge);
   }
 

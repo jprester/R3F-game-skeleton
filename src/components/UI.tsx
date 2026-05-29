@@ -148,6 +148,8 @@ function ControlButton({
       }}
       style={{
         flex: 1,
+        minWidth: 90,
+        whiteSpace: "nowrap",
         background: "rgba(255, 92, 176, 0.18)",
         border: "1px solid rgba(255, 92, 176, 0.55)",
         color: "white",
