@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Environment, Text, useGLTF } from "@react-three/drei";
+import { Text, useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
   Bloom,
@@ -37,6 +37,7 @@ import MusicPlayer, {
   BOOMBOX_TABLE_DEPTH,
   BOOMBOX_TABLE_WIDTH,
 } from "./MusicPlayer";
+import { useControls } from "leva";
 
 const OCEAN_SIZE = 10000;
 const SUN_ELEVATION = 8;
@@ -390,18 +391,28 @@ const COLUMN_POSITIONS: [number, number, number][] = [
 function DoricColumns() {
   const { scene } = useGLTF("/models/misc/doric_pillar.glb");
   return (
-    <>
+    <group name="doric-columns">
       {COLUMN_POSITIONS.map((pos, i) => (
-        <primitive key={i} object={scene.clone(true)} position={pos} />
+        <primitive
+          key={i}
+          name={`doric-column-${i}`}
+          object={scene.clone(true)}
+          position={pos}
+        />
       ))}
-    </>
+    </group>
   );
 }
 
 function VaporwaveBust() {
   const { scene } = useGLTF("/models/statue/helios_vaporwave_bust.glb");
   return (
-    <primitive object={scene} position={[60, 0, -182]} scale={[2, 2, 2]} />
+    <primitive
+      name="vaporwave-bust"
+      object={scene}
+      position={[60, 0, -182]}
+      scale={[2, 2, 2]}
+    />
   );
 }
 
@@ -409,6 +420,7 @@ function WomanStatue() {
   const { scene } = useGLTF("/models/statue/woman1_aiSkin1_0.001.glb");
   return (
     <primitive
+      name="woman-statue"
       object={scene}
       position={[
         PEDESTAL_CENTER_X,
@@ -425,6 +437,7 @@ function FloorDoor() {
   const { scene } = useGLTF("/models/door/door.glb");
   return (
     <primitive
+      name="floor-door"
       object={scene}
       position={[6, FLOOR_HEIGHT, -FLOOR_DEPTH / 2 + 0.5]}
       rotation={[0, 0, 0]}
@@ -670,10 +683,11 @@ function FloatingFloor() {
   const wallEpsilon = 0.012;
 
   return (
-    <group>
+    <group name="floating-floor">
       {slabs.map((slab, i) => (
         <mesh
           key={slab.key}
+          name={`floor-slab-${slab.key}`}
           position={slab.position as unknown as [number, number, number]}
           material={slabMaterials[i]}
           receiveShadow>
@@ -683,35 +697,41 @@ function FloatingFloor() {
         </mesh>
       ))}
       <mesh
+        name="pool-floor"
         position={[POOL_CENTER_X, poolFloorCenterY, POOL_CENTER_Z]}
         material={poolFloorMaterial}
         receiveShadow>
         <boxGeometry args={[POOL_WIDTH, FRAME_THICKNESS, POOL_DEPTH]} />
       </mesh>
       <mesh
+        name="pool-wall-north"
         position={[POOL_CENTER_X, wallCenterY, poolMinZ + wallEpsilon]}
         material={poolWallMaterials.nsFront}>
         <planeGeometry args={[POOL_WIDTH, POOL_RECESS]} />
       </mesh>
       <mesh
+        name="pool-wall-south"
         position={[POOL_CENTER_X, wallCenterY, poolMaxZ - wallEpsilon]}
         rotation={[0, Math.PI, 0]}
         material={poolWallMaterials.nsBack}>
         <planeGeometry args={[POOL_WIDTH, POOL_RECESS]} />
       </mesh>
       <mesh
+        name="pool-wall-east"
         position={[poolMaxX - wallEpsilon, wallCenterY, POOL_CENTER_Z]}
         rotation={[0, -Math.PI / 2, 0]}
         material={poolWallMaterials.ewEast}>
         <planeGeometry args={[POOL_DEPTH, POOL_RECESS]} />
       </mesh>
       <mesh
+        name="pool-wall-west"
         position={[poolMinX + wallEpsilon, wallCenterY, POOL_CENTER_Z]}
         rotation={[0, Math.PI / 2, 0]}
         material={poolWallMaterials.ewWest}>
         <planeGeometry args={[POOL_DEPTH, POOL_RECESS]} />
       </mesh>
       <mesh
+        name="pool-water"
         position={[POOL_CENTER_X, poolWaterY, POOL_CENTER_Z]}
         rotation={[-Math.PI / 2, 0, 0]}
         material={poolWaterMaterial}>
@@ -753,8 +773,9 @@ function PlatoSign() {
   const neonCore = useMemo(() => new Color(3.2, 0.65, 1.9), []);
 
   return (
-    <group position={[PEDESTAL_CENTER_X, 0, PEDESTAL_CENTER_Z]}>
+    <group name="plato-sign" position={[PEDESTAL_CENTER_X, 0, PEDESTAL_CENTER_Z]}>
       <mesh
+        name="pedestal"
         position={[0, pedestalY, 0]}
         material={pedestalMaterial}
         castShadow
@@ -762,6 +783,7 @@ function PlatoSign() {
         <boxGeometry args={[PEDESTAL_WIDTH, PEDESTAL_HEIGHT, PEDESTAL_DEPTH]} />
       </mesh>
       <Text
+        name="plato-text"
         font="/fonts/Italianno-Regular.ttf"
         position={[0, FLOOR_HEIGHT + 7.6, textZ]}
         fontSize={1.45}
@@ -785,6 +807,34 @@ function PlatoSign() {
 export default function Scene() {
   const { camera, gl, scene } = useThree();
   const waterRef = useRef<Water>(null);
+
+  const lights = useControls("Lights", {
+    ambientColor: "#e8cad8",
+    ambientIntensity: { value: 1.3, min: 0, max: 5, step: 0.1 },
+    hemiSkyColor: "#b7b6d6",
+    hemiGroundColor: "#e8bccf",
+    hemiIntensity: { value: 0.5, min: 0, max: 5, step: 0.1 },
+    dirColor: "#ff6ea5",
+    dirIntensity: { value: 2.7, min: 0, max: 10, step: 0.1 },
+  });
+
+  const effects = useControls("Effects", {
+    bloomIntensity: { value: 0.1, min: 0, max: 5, step: 0.01 },
+    bloomThreshold: { value: 1.45, min: 0, max: 3, step: 0.01 },
+    bloomSmoothing: { value: 0.5, min: 0, max: 1, step: 0.01 },
+    bloomRadius: { value: 0.22, min: 0, max: 1, step: 0.01 },
+    chromaticOffset: { value: 0.0012, min: 0, max: 0.01, step: 0.0001 },
+    modulationOffset: { value: 0.45, min: 0, max: 1, step: 0.01 },
+    vignetteOffset: { value: 0.22, min: 0, max: 1, step: 0.01 },
+    vignetteDarkness: { value: 0.45, min: 0, max: 1, step: 0.01 },
+    noiseOpacity: { value: 0.12, min: 0, max: 1, step: 0.01 },
+  });
+
+  const chromaticAberrationOffset = useMemo(
+    () => new Vector2(effects.chromaticOffset, effects.chromaticOffset),
+    [effects.chromaticOffset],
+  );
+
   const sunDirection = useMemo(() => {
     const phi = MathUtils.degToRad(90 - SUN_ELEVATION);
     const theta = MathUtils.degToRad(SUN_AZIMUTH);
@@ -907,11 +957,21 @@ export default function Scene() {
     <>
       <primitive object={skyMesh} />
       <primitive ref={waterRef} object={water} />
-      <ambientLight color={0xe8cad8} intensity={1.3} />
-      <hemisphereLight args={[0xb7b6d6, 0xe8bccf, 0.5]} />
+      <ambientLight
+        name="ambient-light"
+        color={lights.ambientColor}
+        intensity={lights.ambientIntensity}
+      />
+      <hemisphereLight
+        name="hemisphere-light"
+        color={lights.hemiSkyColor}
+        groundColor={lights.hemiGroundColor}
+        intensity={lights.hemiIntensity}
+      />
       <directionalLight
-        color="#ff6ea5"
-        intensity={2.7}
+        name="directional-light"
+        color={lights.dirColor}
+        intensity={lights.dirIntensity}
         position={[
           sunDirection.x * 500,
           sunDirection.y * 500,
@@ -922,18 +982,22 @@ export default function Scene() {
       <EffectComposer enableNormalPass={false} multisampling={0}>
         <Bloom
           mipmapBlur
-          intensity={0.1}
-          luminanceThreshold={1.45}
-          luminanceSmoothing={0.5}
-          radius={0.22}
+          intensity={effects.bloomIntensity}
+          luminanceThreshold={effects.bloomThreshold}
+          luminanceSmoothing={effects.bloomSmoothing}
+          radius={effects.bloomRadius}
         />
         <ChromaticAberration
-          offset={new Vector2(0.0012, 0.0012)}
+          offset={chromaticAberrationOffset}
           radialModulation
-          modulationOffset={0.45}
+          modulationOffset={effects.modulationOffset}
         />
-        <Vignette eskil={false} offset={0.22} darkness={0.45} />
-        <Noise blendFunction={BlendFunction.OVERLAY} opacity={0.12} />
+        <Vignette
+          eskil={false}
+          offset={effects.vignetteOffset}
+          darkness={effects.vignetteDarkness}
+        />
+        <Noise blendFunction={BlendFunction.OVERLAY} opacity={effects.noiseOpacity} />
       </EffectComposer>
       {/* <Environment preset="sunset" environmentIntensity={0.05} /> */}
       <FloatingFloor />
