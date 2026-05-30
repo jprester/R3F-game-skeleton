@@ -11,9 +11,12 @@ export default function App() {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("qa") === "1";
 
+  // Never show the Leva debug panel in a production build — only in `npm run dev`.
+  const hideLeva = isQaMode || import.meta.env.PROD;
+
   return (
     <>
-      <Leva hidden={isQaMode} />
+      <Leva hidden={hideLeva} />
       <Canvas
         shadows
         camera={{ fov: 55, near: 1, far: 20000, position: [30, 30, 100] }}
