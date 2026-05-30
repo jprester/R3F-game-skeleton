@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Environment, Text, useGLTF } from "@react-three/drei";
+import { Text, useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
   Bloom,
@@ -16,7 +16,6 @@ import {
   Fog,
   Mesh,
   MeshPhysicalMaterial,
-  MeshStandardMaterial,
   MathUtils,
   PlaneGeometry,
   RepeatWrapping,
@@ -493,10 +492,15 @@ function FloatingFloor({ sunDirection }: { sunDirection: Vector3 }) {
 
     waterObject.rotation.x = -Math.PI / 2;
     waterObject.material.transparent = true;
+    waterObject.material.depthWrite = false;
+    // The built-in Water shader is reflection-only and fully opaque. Drive its
+    // alpha from the Fresnel term (`reflectance`) it already computes: looking
+    // straight down the water is clear so the pool tiles show through, while at
+    // grazing angles it stays opaque and mirror-like (keeps the sky reflection).
     waterObject.material.fragmentShader =
       waterObject.material.fragmentShader.replace(
-        "gl_FragColor = vec4( color, 1.0 );",
-        "gl_FragColor = vec4( color, 0.35 );",
+        "gl_FragColor = vec4( outgoingLight, alpha );",
+        "gl_FragColor = vec4( outgoingLight, mix( 0.16, 0.92, smoothstep( 0.3, 1.0, reflectance ) ) );",
       );
 
     return waterObject;
