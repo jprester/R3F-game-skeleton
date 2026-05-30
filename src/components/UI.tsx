@@ -55,7 +55,7 @@ export default function UI() {
           borderRadius: 6,
           pointerEvents: "none",
         }}>
-        <strong>Ocean Walk Camera</strong>
+        <strong>Plato's Cove</strong>
         <div>Click to capture mouse</div>
         <div>WASD / arrows move</div>
         <div>Space jumps</div>

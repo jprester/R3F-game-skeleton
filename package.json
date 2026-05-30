@@ -1,7 +1,7 @@
 {
-  "name": "r3f-collision-skeleton",
+  "name": "platos-cove",
   "version": "1.0.0",
-  "description": "",
+  "description": "Plato's Cove — a first-person vaporwave 3D experience: a liminal poolroom drifting on an endless ocean at golden hour.",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,6 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@react-three/postprocessing": "^3.0.4",
-    "@react-three/rapier": "^2.2.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.182.0",
