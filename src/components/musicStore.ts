@@ -3,12 +3,22 @@
 // writes the distance-based volume into the store; it never reads state.
 
 const TRACKS = [
-  "/sounds/music/track1.mp3",
-  "/sounds/music/track2.mp3",
-  "/sounds/music/track3.mp3",
+  "/sounds/music/Beach Condo.mp3",
+  "/sounds/music/Osaka Lounge.mp3",
+  "/sounds/music/Poolroom Afterimage.mp3",
+  "/sounds/music/Seaside Resort.mp3",
+  "/sounds/music/Classy Place.mp3",
+  "/sounds/music/Travelogue.mp3",
 ];
 
-const TRACK_LABELS = ["Track 1", "Track 2", "Track 3"];
+const TRACK_LABELS = [
+  "Beach Condo",
+  "Osaka Lounge",
+  "Poolroom Afterimage",
+  "Seaside Resort",
+  "Classy Place",
+  "Travelogue",
+];
 
 interface Snapshot {
   isPlaying: boolean;

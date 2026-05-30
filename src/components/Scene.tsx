@@ -134,7 +134,11 @@ function useGroundedPlayer() {
     // without pointer lock. The useFrame loop applies yaw/pitch every frame.
     window.setCameraOrientation = (y: number, p: number) => {
       yaw.current = y;
-      pitch.current = MathUtils.clamp(p, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+      pitch.current = MathUtils.clamp(
+        p,
+        -Math.PI / 2 + 0.01,
+        Math.PI / 2 - 0.01,
+      );
     };
     return () => {
       delete window.setCameraOrientation;
@@ -847,7 +851,7 @@ function PlatoSign() {
         name="neon-sign-glow"
         position={[0, FLOOR_HEIGHT + 7.6, textZ + 1.1]}
         color="#ff5cb0"
-        intensity={9}
+        intensity={2}
         distance={10}
         decay={2}
       />
