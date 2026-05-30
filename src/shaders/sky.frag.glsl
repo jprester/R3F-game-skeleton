@@ -52,20 +52,20 @@ void main() {
   float sunR = 0.18;
 
   // Pink atmospheric glow — kept tight so it halos the sun without washing the whole sky
-  color += vec3(1.9, 0.45, 1.35) * exp(-angle * 6.0) * 0.5;
+  color += vec3(0.95, 0.35, 0.75) * exp(-angle * 7.0) * 0.4;
 
   if (angle < sunR) {
     // yNorm goes from 0.0 (bottom of sun) to 1.0 (top of sun)
     float yNorm = clamp((dir.y - sunDir.y) / sunR * 0.5 + 0.5, 0.0, 1.0);
 
     // Neon cyan bottom -> hot core -> magenta top (classic synthwave ramp)
-    vec3 cyan    = vec3(0.30, 1.7, 2.4);
-    vec3 magenta = vec3(2.4, 0.45, 1.6);
+    vec3 cyan    = vec3(0.30, 0.85, 1.0);
+    vec3 magenta = vec3(1.0, 0.35, 0.7);
     vec3 sunColor = mix(cyan, magenta, smoothstep(0.0, 1.0, yNorm));
 
     // Bright near-white band just above the equator where pink meets cyan
     float core = exp(-pow((yNorm - 0.55) * 6.5, 2.0));
-    sunColor += vec3(1.5, 1.15, 1.5) * core;
+    sunColor += vec3(0.4, 0.3, 0.4) * core;
 
     // Horizontal scan lines confined to the lower (cyan) half; dissolve toward the bottom
     float scanMask = 1.0;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Text, useGLTF } from "@react-three/drei";
+import { Environment, Text, useGLTF } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
   Bloom,
@@ -462,7 +462,7 @@ function FloorDoor() {
   );
 }
 
-function FloatingFloor() {
+function FloatingFloor({ sunDirection }: { sunDirection: Vector3 }) {
   const [colorMap, normalMap, roughnessMap] = useLoader(TextureLoader, [
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_Color.jpg",
     "/textures/wall/bahtroom-walls2/Tiles105_4K-JPG_NormalGL.jpg",
@@ -470,19 +470,48 @@ function FloatingFloor() {
   ]);
   const waterNormals = useLoader(TextureLoader, "/textures/waternormals.jpg");
 
-  // Tiling ripple normals for the pool surface (animated in useFrame below).
-  const poolNormals = useMemo(() => {
-    const t = waterNormals.clone();
-    t.wrapS = RepeatWrapping;
-    t.wrapT = RepeatWrapping;
-    t.repeat.set(3, 2.5);
-    t.needsUpdate = true;
-    return t;
+  const poolWaterRef = useRef<Water>(null);
+  const poolWater = useMemo(() => {
+    const tNormals = waterNormals.clone();
+    tNormals.wrapS = RepeatWrapping;
+    tNormals.wrapT = RepeatWrapping;
+    tNormals.needsUpdate = true;
+
+    const waterObject = new Water(
+      new PlaneGeometry(POOL_WIDTH - 0.05, POOL_DEPTH - 0.05),
+      {
+        textureWidth: 512,
+        textureHeight: 512,
+        waterNormals: tNormals,
+        sunDirection: new Vector3(),
+        sunColor: 0xff5cb0,
+        waterColor: 0x1d4a52,
+        distortionScale: 0.15,
+        fog: false,
+      },
+    );
+
+    waterObject.rotation.x = -Math.PI / 2;
+    waterObject.material.transparent = true;
+    waterObject.material.fragmentShader =
+      waterObject.material.fragmentShader.replace(
+        "gl_FragColor = vec4( color, 1.0 );",
+        "gl_FragColor = vec4( color, 0.35 );",
+      );
+
+    return waterObject;
   }, [waterNormals]);
 
+  useEffect(() => {
+    if (poolWater) {
+      poolWater.material.uniforms.sunDirection.value.copy(sunDirection);
+    }
+  }, [poolWater, sunDirection]);
+
   useFrame((_, delta) => {
-    poolNormals.offset.x += delta * 0.02;
-    poolNormals.offset.y += delta * 0.015;
+    if (poolWaterRef.current) {
+      poolWaterRef.current.material.uniforms.time.value += delta * 0.15;
+    }
   });
 
   const makeTiledMaterial = (
@@ -522,12 +551,12 @@ function FloatingFloor() {
       ),
       normalScale: new Vector2(0.18, 0.18),
       color: "#e8d0d8",
-      roughness: 0.22,
+      roughness: 0.15,
       metalness: 0,
       // Clearcoat is the wet/glazed varnish layer on top of the ceramic base.
       clearcoat: 0.85,
       clearcoatRoughness: 0.06,
-      envMapIntensity: 0.55,
+      envMapIntensity: 1.2,
     });
   };
 
@@ -686,42 +715,18 @@ function FloatingFloor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorMap, normalMap, roughnessMap, WALL_TILE_WORLD_SIZE]);
 
-  const poolWaterMaterial = useMemo(
-    () =>
-      new MeshStandardMaterial({
-        color: "#8fc4cb",
-        // A touch of cyan self-illumination keeps the water from greying out under
-        // the scene's pink light, while staying pastel/harmonized with the palette.
-        emissive: new Color("#2a626b"),
-        emissiveIntensity: 0.25,
-        roughness: 0.14,
-        metalness: 0.1,
-        normalMap: poolNormals,
-        normalScale: new Vector2(0.35, 0.35),
-        transparent: true,
-        opacity: 0.85,
-      }),
-    [poolNormals],
-  );
-
   useEffect(
     () => () => {
       slabMaterials.forEach((m) => m.dispose());
       poolFloorMaterial.dispose();
-      poolWaterMaterial.dispose();
-      poolNormals.dispose();
+      poolWater.geometry.dispose();
+      poolWater.material.dispose();
       poolWallMaterials.nsFront.dispose();
       poolWallMaterials.nsBack.dispose();
       poolWallMaterials.ewEast.dispose();
       poolWallMaterials.ewWest.dispose();
     },
-    [
-      slabMaterials,
-      poolFloorMaterial,
-      poolWaterMaterial,
-      poolWallMaterials,
-      poolNormals,
-    ],
+    [slabMaterials, poolFloorMaterial, poolWater, poolWallMaterials],
   );
 
   const wallCenterY = poolFloorTopY + POOL_RECESS / 2;
@@ -775,13 +780,11 @@ function FloatingFloor() {
         material={poolWallMaterials.ewWest}>
         <planeGeometry args={[POOL_DEPTH, POOL_RECESS]} />
       </mesh>
-      <mesh
-        name="pool-water"
+      <primitive
+        ref={poolWaterRef}
+        object={poolWater}
         position={[POOL_CENTER_X, poolWaterY, POOL_CENTER_Z]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        material={poolWaterMaterial}>
-        <planeGeometry args={[POOL_WIDTH - 0.05, POOL_DEPTH - 0.05]} />
-      </mesh>
+      />
     </group>
   );
 }
@@ -796,7 +799,7 @@ function PlatoSign() {
   const pedestalMaterial = useMemo(() => {
     const repeatX = PEDESTAL_WIDTH / 6;
     const repeatY = PEDESTAL_HEIGHT / 6;
-    return new MeshStandardMaterial({
+    return new MeshPhysicalMaterial({
       map: configureRepeatingTexture(colorMap.clone(), repeatX, repeatY, true),
       normalMap: configureRepeatingTexture(normalMap.clone(), repeatX, repeatY),
       roughnessMap: configureRepeatingTexture(
@@ -806,8 +809,11 @@ function PlatoSign() {
       ),
       normalScale: new Vector2(0.08, 0.08),
       color: "#ead4dc",
-      roughness: 0.3,
+      roughness: 0.15,
       metalness: 0,
+      clearcoat: 0.85,
+      clearcoatRoughness: 0.06,
+      envMapIntensity: 1.2,
     });
   }, [colorMap, normalMap, roughnessMap]);
 
@@ -1010,6 +1016,11 @@ export default function Scene() {
 
   return (
     <>
+      {/* <Environment frames={1} resolution={512}> */}
+      {/* <mesh>
+         <primitive object={skyMaterial} attach="material" />
+       </mesh> */}
+      {/* </Environment> */}
       <primitive object={skyMesh} />
       <primitive ref={waterRef} object={water} />
       <ambientLight
@@ -1032,7 +1043,16 @@ export default function Scene() {
           sunDirection.y * 500,
           sunDirection.z * 500,
         ]}
-        target-position={[0, FLOOR_HEIGHT, 0]}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-near={10}
+        shadow-camera-far={600}
+        shadow-camera-left={-40}
+        shadow-camera-right={40}
+        shadow-camera-top={40}
+        shadow-camera-bottom={-40}
+        shadow-bias={-0.0005}
       />
       <EffectComposer enableNormalPass={false} multisampling={0}>
         <Bloom
@@ -1057,8 +1077,7 @@ export default function Scene() {
           opacity={effects.noiseOpacity}
         />
       </EffectComposer>
-      {/* <Environment preset="sunset" environmentIntensity={0.05} /> */}
-      <FloatingFloor />
+      <FloatingFloor sunDirection={sunDirection} />
       <PlatoSign />
       <DoricColumns />
       <VaporwaveBust />
