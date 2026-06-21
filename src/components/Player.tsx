@@ -7,7 +7,6 @@ import {
 } from "@react-three/rapier";
 import { useKeyboardControls } from "@react-three/drei";
 import { Vector3 } from "three";
-import { useAudio } from "./AudioProvider";
 
 interface PlayerProps {
   position?: [number, number, number];
@@ -27,7 +26,6 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
   const isPointerLocked = useRef(false);
 
   // Audio
-  const { playFootstep, stopFootsteps } = useAudio();
   const lastFootstepTime = useRef(0);
   const wasMoving = useRef(false);
 
@@ -59,7 +57,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
       // Clamp vertical rotation
       rotation.current.x = Math.max(
         -Math.PI / 2 + 0.1,
-        Math.min(Math.PI / 2 - 0.1, rotation.current.x)
+        Math.min(Math.PI / 2 - 0.1, rotation.current.x),
       );
     };
 
@@ -73,7 +71,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
       document.removeEventListener("click", handleCanvasClick);
       document.removeEventListener(
         "pointerlockchange",
-        handlePointerLockChange
+        handlePointerLockChange,
       );
       document.removeEventListener("mousemove", handleMouseMove);
     };
@@ -108,7 +106,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
         y: velocity.y, // Preserve vertical velocity
         z: direction.z * MOVE_SPEED,
       },
-      true
+      true,
     );
 
     // Footstep sounds - play when moving on ground
@@ -117,12 +115,10 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
 
     if (isMoving && isOnGround.current) {
       if (currentTime - lastFootstepTime.current > FOOTSTEP_INTERVAL) {
-        playFootstep();
         lastFootstepTime.current = currentTime;
       }
     } else if (wasMoving.current && !isMoving) {
       // Stop footstep sounds when player stops moving
-      stopFootsteps();
     }
 
     wasMoving.current = isMoving;
@@ -138,7 +134,7 @@ export default function Player({ position = [0, 2, 0] }: PlayerProps) {
     if (jump && isOnGround.current) {
       rigidBodyRef.current.setLinvel(
         { x: velocity.x, y: JUMP_FORCE, z: velocity.z },
-        true
+        true,
       );
       isOnGround.current = false;
     }

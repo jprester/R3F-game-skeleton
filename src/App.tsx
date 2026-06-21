@@ -35,7 +35,7 @@ export default function App() {
           camera={{ fov: 60, near: 0.1, far: 30 }}
           style={{ background: "#1a1a2e" }}>
           <Physics gravity={[0, -20, 0]} debug={false}>
-            <Scene isMuted={isMuted} masterVolume={masterVolume} />
+            <Scene />
           </Physics>
         </Canvas>
       </KeyboardControls>
