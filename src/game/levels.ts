@@ -3,15 +3,9 @@ import { Box3, Vector3 } from 'three';
 export type Position = [number, number, number];
 export interface Solid { position: Position; size: Position; color: string }
 export interface Level {
-  id: 'demo' | 'annex' | 'tower';
+  id: 'demo' | 'annex';
   name: string;
   subtitle: string;
-  /** Level picker label, briefing eyebrow, where the core is, the insertion brief, and the nudge when E finds nothing. */
-  kind: 'Mission' | 'Mechanics demo';
-  operation: string;
-  objective: string;
-  brief: string;
-  coreHint: string;
   spawn: Position;
   artifact: Position;
   extraction: Position;
@@ -25,52 +19,13 @@ export interface Level {
   lights: Position[];
   signs: { position: Position; text: string; rotation?: number }[];
 }
-const WALL_COLOR = '#666f75';
-const box = (position: Position, size: Position, color = WALL_COLOR): Solid => ({ position, size, color });
-
-/** Level kit: every wall is 3.6 m tall and 0.25 m thick; doorways are 2.8 m tall with a lintel above. */
-const WALL_HEIGHT = 3.6, WALL_THICKNESS = .25, DOOR_HEIGHT = 2.8;
-/** A doorway in a wall: its centre along the wall and its width. */
-type Door = [centre: number, width: number];
-
-/** Floor, ceiling and the four outer walls of a rectangular floor plate. */
-function shell(minX: number, maxX: number, minZ: number, maxZ: number, floor = '#343c42', ceiling = '#52606a'): Solid[] {
-  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2, width = maxX - minX, depth = maxZ - minZ;
-  return [
-    box([cx, -.15, cz], [width, .3, depth], floor),
-    box([cx, WALL_HEIGHT + .1, cz], [width, .2, depth], ceiling),
-    box([minX, WALL_HEIGHT / 2, cz], [WALL_THICKNESS, WALL_HEIGHT, depth]), box([maxX, WALL_HEIGHT / 2, cz], [WALL_THICKNESS, WALL_HEIGHT, depth]),
-    box([cx, WALL_HEIGHT / 2, minZ], [width, WALL_HEIGHT, WALL_THICKNESS]), box([cx, WALL_HEIGHT / 2, maxZ], [width, WALL_HEIGHT, WALL_THICKNESS]),
-  ];
-}
-/** Wall segments between `from` and `to` along one axis, leaving the given doorways open under a lintel. */
-function wallSpan(from: number, to: number, doors: Door[], place: (centre: number, length: number, y: number, height: number) => Solid) {
-  const solids: Solid[] = [];
-  let start = from;
-  for (const [centre, width] of [...doors].sort((a, b) => a[0] - b[0])) {
-    const open = centre - width / 2, close = centre + width / 2;
-    if (open > start) solids.push(place((start + open) / 2, open - start, WALL_HEIGHT / 2, WALL_HEIGHT));
-    solids.push(place(centre, width, (DOOR_HEIGHT + WALL_HEIGHT) / 2, WALL_HEIGHT - DOOR_HEIGHT));
-    start = close;
-  }
-  if (to > start) solids.push(place((start + to) / 2, to - start, WALL_HEIGHT / 2, WALL_HEIGHT));
-  return solids;
-}
-/** A wall running along x at depth `z`. */
-const wallAlongX = (z: number, fromX: number, toX: number, doors: Door[] = []) =>
-  wallSpan(fromX, toX, doors, (x, length, y, height) => box([x, y, z], [length, height, WALL_THICKNESS]));
-/** A wall running along z at `x`. */
-const wallAlongZ = (x: number, fromZ: number, toZ: number, doors: Door[] = []) =>
-  wallSpan(fromZ, toZ, doors, (z, length, y, height) => box([x, y, z], [WALL_THICKNESS, height, length]));
+const box = (position: Position, size: Position, color = '#666f75'): Solid => ({ position, size, color });
 function level(data: Omit<Level, 'bounds'>): Level {
   return { ...data, bounds: data.solids.map(s => new Box3().setFromCenterAndSize(new Vector3(...s.position), new Vector3(...s.size))) };
 }
 
 export const DEMO_LEVEL = level({
   id: 'demo', name: 'Quiet entry', subtitle: 'CORPORATE ANNEX · TEST OFFICE',
-  kind: 'Mechanics demo', operation: 'FIELD TRIAL 01', objective: 'Research chamber · beyond Operations',
-  brief: 'Enter the test office, recover the transit core from Research, and return here. Two guards, a camera and an office worker stand between you and the objective.',
-  coreHint: 'Find the transit core in Research.',
   spawn: [0, .91, 5.5], artifact: [0, 1.65, -16], extraction: [0, 0, 5.5],
   area: { minX: -5.5, maxX: 5.5, minZ: -17.5, maxZ: 7.5 },
   solids: [
@@ -120,9 +75,6 @@ const splitWall = (z: number, rightDoor = 4.25): Solid[] => {
 };
 export const ANNEX_LEVEL = level({
   id: 'annex', name: 'The records wing', subtitle: 'CORPORATE ANNEX · NIGHT',
-  kind: 'Mission', operation: 'OPERATION 01', objective: 'Vault · beyond the records wing',
-  brief: 'Enter the records wing, take the direct security route on the left or the longer covered service route on the right, recover the core from the vault, and return here. Armed guards hold the left; an alarm guard and a camera watch the right.',
-  coreHint: 'Find the transit core in the vault.',
   spawn: [0, .91, 7], artifact: [0, 1.65, -22], extraction: [0, 0, 7],
   area: { minX: -8.5, maxX: 8.5, minZ: -23.5, maxZ: 8.5 },
   solids: [
@@ -171,73 +123,4 @@ export const ANNEX_LEVEL = level({
   ],
 });
 
-/**
- * Meridian Tower, 41st floor. North is -z. Insertion is through the roof-access stairwell (south-east),
- * which is also extraction. Two routes to the server room: east through the service corridor and the
- * security office (armed guards, tall cover), or west through the break room and the open office
- * (cameras overhead, an alarm guard, low desk partitions that hide you from him but not from above).
- */
-const DESK = '#38454e', CABINET = '#29343e', RACK = '#1f2a33', SOFT = '#3d4a52';
-export const TOWER_LEVEL = level({
-  id: 'tower', name: 'Meridian tower', subtitle: 'MERIDIAN TOWER · 41ST FLOOR · NIGHT',
-  kind: 'Mission', operation: 'OPERATION 02', objective: 'Server room · north side of the floor',
-  brief: 'Come down from the roof access, recover the core from the server room, and return to the stairwell. East, the service corridor and security office are held by armed guards. West, the open office is watched by cameras and an alarm guard, and the sysadmin faces its server-room door.',
-  coreHint: 'Find the transit core in the server room.',
-  spawn: [8.2, .91, 10], artifact: [-10.3, 1.65, -19], extraction: [8.2, 0, 10],
-  area: { minX: -11.5, maxX: 11.5, minZ: -21.5, maxZ: 13.5 },
-  solids: [
-    ...shell(-12, 12, -22, 14),
-    // Rooms: stairwell (SE), break room (S), service corridor (E), open office (centre), security (NE), server room (NW).
-    // The stairwell's corridor door sits at the far east so the corridor guard cannot see the insertion point.
-    ...wallAlongX(8, -12, 12, [[-4, 1.5], [11, 1.5]]),
-    ...wallAlongZ(7, 8, 14, [[11, 1.5]]),
-    ...wallAlongZ(7, -14, 8, [[-4, 1.5]]),
-    ...wallAlongX(-14, -12, 12, [[-6, 1.5], [9.5, 1.5]]),
-    ...wallAlongZ(0, -22, -14, [[-18, 1.5]]),
-    // Stairwell: the stair core up to the roof.
-    box([10.3, 1.8, 12.4], [2.8, 3.6, 2.4], '#4a555c'),
-    // Break room.
-    box([-11.3, 1, 12.9], [.9, 2, .9], '#2f4a55'), box([-7, .4, 12.9], [3, .8, .9], SOFT),
-    box([-2, .5, 11], [1.4, 1, 1.4], DESK), box([2.5, .5, 11], [1.4, 1, 1.4], DESK),
-    box([-10.8, .55, 10], [1.2, 1.1, 2.5], DESK),
-    // Service corridor: tall alcove cabinets on the far wall, one low crate by the inner wall.
-    box([11.35, 1.1, 3], [.9, 2.2, 1.6], CABINET), box([11.35, 1.1, -7], [.9, 2.2, 1.6], CABINET),
-    box([7.8, .55, -9], [1, 1.1, 1.4], DESK),
-    // Open office: six desk clusters with 1.2 m partitions, a meeting table, a planter and a printer station.
-    ...[-8.2, -1.8].flatMap(x => [3.5, -2.5, -8.5].map(z => box([x, .6, z], [3.4, 1.2, 2.2], DESK))),
-    box([3.5, .5, -6], [2.5, 1, 1.4], DESK), box([5.8, .8, 2], [1, 1.6, 1], '#35503f'),
-    box([4.5, .6, -11.5], [1.4, 1.2, .9], CABINET),
-    // Security office: monitor desk and lockers.
-    box([6, .75, -20.6], [3.4, 1.5, 1], DESK), box([11.35, 1.1, -18.5], [.9, 2.2, 3], CABINET),
-    // Server room: two rack rows; the core stands in the west aisle.
-    box([-8.6, 1.1, -18.2], [.9, 2.2, 6], RACK), box([-3.4, 1.1, -18.2], [.9, 2.2, 6], RACK),
-    box([-10.3, .6, -19], [1.2, 1.2, 1.2], '#273b48'),
-  ],
-  guards: [
-    { route: [[9.5, 0, 2], [9.5, 0, -12]], armed: true },
-    { route: [[3, 0, -17.5], [8.5, 0, -17.5]], armed: true },
-    { route: [[-5, 0, 6], [-5, 0, -12]], armed: false },
-  ],
-  // Ceiling-hung over the centre line: one sweeps the entry from the break room, one the approach
-  // to the server-room door. Each has a blind spot beneath it, and the band between them is quieter.
-  cameras: [
-    { position: [-5, 2.9, 2.5], facing: 0, sweep: 1.1 },
-    { position: [-5, 2.9, -8], facing: Math.PI, sweep: 1.1 },
-  ],
-  // The sysadmin watches the centre aisle toward the open-office door; the racks hide the security door.
-  worker: { start: [-6, 0, -21], alarm: [-11.1, 0, -15], facing: 0, panel: [-11.82, 1.31, -15] },
-  lights: [[9.5, 3.1, 11], [-3, 3.1, 11], [9.5, 3.1, -3], [-5, 3.1, 2], [-5, 3.1, -8], [2.5, 3.1, -3], [6, 3.1, -18], [-6, 3.1, -18]],
-  signs: [
-    { position: [10.1, 3.2, 8.14], text: 'SERVICE CORRIDOR' },
-    { position: [7.14, 3.2, 11], text: 'BREAK ROOM', rotation: Math.PI / 2 },
-    { position: [11.84, 2.3, 10.2], text: 'ROOF ACCESS · EXTRACTION', rotation: -Math.PI / 2 },
-    { position: [-4, 3.2, 8.14], text: '41 / OPEN OFFICE' },
-    { position: [7.14, 3.2, -4], text: 'OPEN OFFICE', rotation: Math.PI / 2 },
-    { position: [-6, 3.2, -13.86], text: 'SERVER ROOM' },
-    { position: [9.5, 3.2, -13.86], text: 'SECURITY' },
-    { position: [.14, 3.2, -18], text: 'SERVER ROOM', rotation: Math.PI / 2 },
-    { position: [-11.84, 2.06, -15], text: 'ALARM PANEL', rotation: Math.PI / 2 },
-  ],
-});
-
-export const LEVELS = [ANNEX_LEVEL, TOWER_LEVEL, DEMO_LEVEL] as const;
+export const LEVELS = [ANNEX_LEVEL, DEMO_LEVEL] as const;
