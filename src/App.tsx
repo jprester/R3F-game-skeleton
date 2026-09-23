@@ -4,6 +4,7 @@ import { Physics } from "@react-three/rapier";
 import Encounter, { HUD, initialHUD } from "./game/Encounter";
 import { LIFE_SENSE_COOLDOWN, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, SHOT_WINDUP, WARY_DURATION } from "./game/mechanics";
 import type { Threat } from "./game/awareness";
+import { SPELLS, type SpellId } from "./game/spells";
 import { formatTime, isBetterRun, rateOperation, RATINGS, type BestRun, type OperationStats } from "./game/debrief";
 
 /** Personal bests live in this browser only; storage can be unavailable, so every access is guarded. */
@@ -51,6 +52,13 @@ function Debrief({ hud, previous, newBest }: { hud: HUD; previous: BestRun | nul
 }
 import { ANNEX_LEVEL, DEMO_LEVEL, type Level } from "./game/levels";
 import "./game/game.css";
+
+/** Ability bar status: an ongoing effect first, then the cooldown. */
+function spellStatus(hud: HUD, id: SpellId) {
+  if (id === "seeker" && hud.seekerFlying) return "TRACKING";
+  if (id === "sense" && hud.senseActive > 0) return "SENSING";
+  return hud.cooldowns[id] > 0 ? `${hud.cooldowns[id].toFixed(1)}s` : "READY";
+}
 
 /** An arc of the indicator ring, centred on `angle` (0 = ahead, clockwise positive). */
 const THREAT_RADIUS = 200;
@@ -198,31 +206,13 @@ export default function App() {
       )}
       <div className="bottom">
         <div className="abilities">
-          <div>
-            <kbd>LMB</kbd>
-            <strong>Motor Lock</strong>
-            <span>{hud.motor > 0 ? `${hud.motor.toFixed(1)}s` : "READY"}</span>
-          </div>
-          <div>
-            <kbd>Q</kbd>
-            <strong>Blink</strong>
-            <span>{hud.blink > 0 ? `${hud.blink.toFixed(1)}s` : "READY"}</span>
-          </div>
-          <div>
-            <kbd>F</kbd>
-            <strong>Seeker Crystal</strong>
-            <span>{hud.seekerFlying ? "TRACKING" : hud.seeker > 0 ? `${hud.seeker.toFixed(1)}s` : "READY"}</span>
-          </div>
-          <div>
-            <kbd>R</kbd>
-            <strong>Echo Lure</strong>
-            <span>{hud.lure > 0 ? `${hud.lure.toFixed(1)}s` : "READY"}</span>
-          </div>
-          <div>
-            <kbd>V</kbd>
-            <strong>Life Sense</strong>
-            <span>{hud.senseActive > 0 ? "SENSING" : hud.sense > 0 ? `${hud.sense.toFixed(1)}s` : "READY"}</span>
-          </div>
+          {SPELLS.map(spell => (
+            <div key={spell.id}>
+              <kbd>{spell.key}</kbd>
+              <strong>{spell.name}</strong>
+              <span>{spellStatus(hud, spell.id)}</span>
+            </div>
+          ))}
         </div>
         <p>
           WASD move · {dragLook ? "Right-drag look" : "Mouse look"} · Shift quiet

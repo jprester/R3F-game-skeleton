@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three';
-import { RADIO_CALL_TIME, type Guard } from './mechanics.ts';
+import { RADIO_CALL_TIME, type Guard, type RadioCall } from './mechanics.ts';
 import type { Worker } from './worker.ts';
 
 /** Most urgent first: alert beats an active radio call beats an investigation beats a glance. */
@@ -41,4 +41,25 @@ export function threats(guards: Guard[], worker: Worker, from: Vector3, yaw: num
   const threat = workerThreat(worker);
   if (threat) list.push({ id: 'worker', angle: screenAngle(from, yaw, worker.position), ...threat });
   return list;
+}
+
+/** The radio call closest to completing, if any guard is calling. */
+export const leadingCall = (guards: Guard[]) =>
+  guards.reduce<RadioCall | null>((best, g) => g.radio && (!best || g.radio.time > best.time) ? g.radio : best, null);
+
+/** The single most urgent security state, for the label above the detection meter. */
+export function awarenessLabel(guards: Guard[], worker: Worker, wary: number) {
+  const call = leadingCall(guards);
+  const investigating = (clue: 'lastSeen' | 'lastHeard') => guards.some(g => (g.mode === 'investigate' || g.mode === 'search') && g[clue]);
+  return guards.some(g => g.alarm > 0) ? 'ALARM CALL' :
+    worker.mode === 'calling' ? 'WORKER REPORT' :
+    call ? (call.reason === 'contact' ? 'RADIO · CONTACT REPORT' : call.reason === 'attacked' ? 'RADIO · GUARD REPORTING ATTACK' : 'RADIO · COLLEAGUE DOWN') :
+    worker.mode === 'fleeing' ? 'WORKER RUNNING TO ALARM' :
+    guards.some(g => g.mode === 'alert') ? 'CONTACT CONFIRMED' :
+    guards.some(g => g.mode === 'check') ? 'GUARD CHECKING A COLLEAGUE' :
+    investigating('lastSeen') ? 'INVESTIGATING LAST CONTACT' :
+    investigating('lastHeard') ? 'INVESTIGATING A SOUND' :
+    guards.some(g => g.mode === 'suspicious') ? 'SECURITY ATTENTION' :
+    worker.mode === 'noticed' ? 'WORKER NOTICED MOVEMENT' :
+    wary > 0 ? 'SECURITY WARY' : '';
 }

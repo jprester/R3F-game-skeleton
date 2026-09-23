@@ -1,4 +1,7 @@
-export type CastKind = 'motor' | 'blink' | 'seeker' | 'lure' | 'sense';
+import type { SpellId } from './spells/types.ts';
+
+/** Every spell is counted; a new spell must be added to createStats, which the type enforces. */
+export type CastKind = SpellId;
 
 /** What happened during one attempt, counted by the encounter as it runs. */
 export interface OperationStats {

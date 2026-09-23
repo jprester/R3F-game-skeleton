@@ -71,13 +71,16 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 15. Added directional awareness arcs and the Life Sense pulse (V).
 16. Added the end-of-operation debrief with Ghost / Discreet / Compromised ratings and per-level personal bests.
 17. Guards pause at patrol ends and turn gradually instead of snapping 180°, after playtesting found players caught by instant reversals.
+18. Refactored spells into `src/game/spells/` modules with a shared registry; moved sounds to `audio.ts` and the awareness label to `awareness.ts`. No gameplay change, except that a Motor Lock which cuts off a radio call now says so (the old message was overwritten in the same frame).
 
 ## Code map and important invariants
 
 | Path | Responsibility |
 | --- | --- |
 | `src/App.tsx` | Top-level React app, level picker, briefing, HUD, pointer-lock/fallback flow, restart, shared audio context |
-| `src/game/Encounter.tsx` | Active game loop: input, player body and camera, spell targeting/casts, guard and worker updates, shot resolution, objective and failure handling, visual/audio effects |
+| `src/game/Encounter.tsx` | Active game loop: input, player body and camera, resolving the crosshair `Aim` with Rapier, running spell casts and presenting their effects, Restraint, security and worker updates, shot resolution, objective and failure handling, HUD assembly |
+| `src/game/spells/` | One module per spell (`motorLock`, `blink`, `seekerCrystal`, `echoLure`, `lifeSense`), each with name, key, input code, cooldown, `offered(aim)` for the crosshair prompt, and a pure `cast(aim, world)` that validates, applies game state and returns a presentation `SpellEffect`. `index.ts` holds the `SPELLS` registry (HUD order), `tryCast` (cooldown gating) and `aimPrompt`. Key bindings, the ability bar and debrief cast counts all derive from the registry |
+| `src/game/audio.ts` | Synthesized cues, Echo Lure sound and guard shots (Web Audio) |
 | `src/game/levels.ts` | **Active level source of truth:** solids, precomputed bounds, play area, spawn/core/extraction, guard routes and armed flags, worker/panel, lights, signs |
 | `src/game/mechanics.ts` | Per-guard AI (including colleague checks and radio progress), vision, hearing, navigation, Blink-safe floor checks, Seeker flight, gameplay constants. `lockGuard` is the single entry point for immobilizing a guard. Most helpers take a `Level`; omitted level defaults to Quiet Entry for older tests/tools |
 | `src/game/security.ts` | Guard-force coordination: advances all guards, resolves completed radio calls (converge on contact, wary state, mark victims reported) and gunfire hearing. `Encounter` calls `updateSecurity` once per frame |
@@ -85,7 +88,7 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 | `src/game/Environment.tsx` | Renders `level.solids` as Rapier fixed colliders and meshes; also lights, signs, panel, extraction ring, route cues |
 | `src/game/GuardCharacter.tsx`, `WorkerCharacter.tsx` | Code-built NPC blockouts and animations; character rigid bodies carry identifiers used by Rapier targeting rays |
 | `src/game/debrief.ts` | Operation stats shape, rating rules, best-run comparison, time formatting |
-| `src/game/awareness.ts` | Pure threat-indicator list and screen-angle math for the awareness arcs |
+| `src/game/awareness.ts` | Pure threat-indicator list and screen-angle math for the awareness arcs, plus the detection-meter label and the leading radio call |
 | `src/game/SenseMarker.tsx` | Life Sense overlay per NPC (depth-test-free silhouette, gaze line, view and focus cones); cones reuse the sight constants from `mechanics.ts` so the display matches detection |
 | `src/game/GuardFootsteps.ts` | Synthesized positional guard walking audio |
 | `src/game/game.css` | HUD and briefing appearance |
@@ -108,12 +111,14 @@ npm test
 npm run build
 ```
 
-Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **64 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
+Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **72 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
 
 ## Prototype limits and useful next work
 
 The Records Wing is a gameplay blockout, not finished art. Patrols, hearing, cooldowns, guard fire, and the two route choices still need end-to-end human playtesting and balance. The next useful pass is to play both routes through core retrieval **and extraction**, note where the player is confused or overwhelmed, then tune cover and patrol timing. Preserve the distinct risk profiles: fast/exposed/armed on the left, longer/covered/alarm risk on the right. Prefer improving readable decisions before adding another large map or more powers.
 
 Current guard gunfire is a sight-based hit event with a tracer effect, not a physical projectile simulation. Radio and wary timings (2 s call, 30 s wary, 0.8 s wary detection) are first-pass values and need playtesting, particularly whether a contact call makes the Records Wing converge too hard. Guard and worker models are primitive meshes; there is no animation or Blender asset pipeline. There is no save system, inventory, recon wisp, guardian shard, defensive field, or squad/cover AI beyond the radio coordination above. These are future possibilities, not missing parts of the current prototype.
+
+To add a spell: create a module in `src/game/spells/` implementing `Spell`, add it to `SPELLS`, add its counter to `createStats` in `debrief.ts` (the type check enforces this), add a `SpellEffect` variant if it needs presentation, and handle that variant in `Encounter`'s `present`.
 
 For any continued work: make a small playable change, keep Quiet Entry working, update the active level data rather than the unused skeleton, run tests and build, and verify important visual or input changes in the game. Update this handoff when a major mechanic or architecture decision changes.
