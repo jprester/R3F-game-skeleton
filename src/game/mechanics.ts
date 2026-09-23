@@ -1,32 +1,12 @@
 import { Box3, Ray, Vector3 } from 'three';
+import { DEMO_LEVEL, type Level } from './levels.ts';
 
-export type Position = [number, number, number];
-export interface Solid { position: Position; size: Position; color: string }
-const box = (position: Position, size: Position, color = '#666f75'): Solid => ({ position, size, color });
-// One source of truth for visible architecture, collision and visibility queries.
-export const solids: Solid[] = [
-  box([0, -.15, -5], [12, .3, 26], '#343c42'),
-  box([0, 3.7, -5], [12, .2, 26], '#52606a'),
-  box([-6, 1.8, -5], [.25, 3.6, 26]), box([6, 1.8, -5], [.25, 3.6, 26]),
-  box([0, 1.8, 8], [12, 3.6, .25]), box([0, 1.8, -18], [12, 3.6, .25]),
-  ...[0, -10].flatMap(z => [
-    box([-5.1, 1.8, z], [1.8, 3.6, .25]),
-    box([0, 1.8, z], [5, 3.6, .25]),
-    box([5.1, 1.8, z], [1.8, 3.6, .25]),
-    box([-3.35, 3.2, z], [1.7, .8, .25]), box([3.35, 3.2, z], [1.7, .8, .25]),
-  ]),
-  box([1.8, 1.8, -5], [.2, 3.6, 6], '#46545e'),
-  box([-1, .75, -4], [2.2, 1.5, 1], '#38454e'),
-  box([-1, .75, -7], [2.2, 1.5, 1], '#38454e'),
-  box([-5.3, 1.1, -5], [.8, 2.2, 3], '#29343e'),
-  box([0, .6, -16], [1.6, 1.2, 1.2], '#273b48'),
-  box([-4.7, 1.1, -16], [1.5, 2.2, 2], '#29343e'),
-  box([-4.5, .55, 4], [2, 1.1, 1], '#38454e'),
-];
-export const bounds = solids.map(s => new Box3().setFromCenterAndSize(new Vector3(...s.position), new Vector3(...s.size)));
-export const SPAWN: Position = [0, .91, 5.5];
-export const ARTIFACT = new Vector3(0, 1.65, -16);
-export const EXTRACTION = new Vector3(0, 0, 5.5);
+// Keep the demo defaults available to the small mechanics tests and prototype tools.
+export const solids = DEMO_LEVEL.solids;
+export const bounds = DEMO_LEVEL.bounds;
+export const SPAWN = DEMO_LEVEL.spawn;
+export const ARTIFACT = new Vector3(...DEMO_LEVEL.artifact);
+export const EXTRACTION = new Vector3(...DEMO_LEVEL.extraction);
 export const BLINK_RANGE = 7;
 export const LOCK_RANGE = 10;
 export const LOCK_DURATION = 6;
@@ -36,7 +16,15 @@ export const SEEKER_RANGE = 14;
 export const SEEKER_COOLDOWN = 9;
 export const SEEKER_LOCK_DURATION = 10;
 export const SEEKER_SPEED = 5;
+export const LURE_RANGE = 12;
+export const LURE_COOLDOWN = 8;
+export const LURE_HEARING_RANGE = 8;
 export const GUARD_STRIDE = .56;
+export const WALK_HEARING_RANGE = 5;
+export const QUIET_HEARING_RANGE = 1.5;
+export const SHOT_WINDUP = .6;
+export const SHOT_COOLDOWN = 1;
+export const PLAYER_MAX_HEALTH = 3;
 
 /** Walk distance drives the sound, so a stationary or immobilized guard stays quiet. */
 export function advanceFootsteps(distanceSinceStep: number, distanceMoved: number) {
@@ -46,27 +34,33 @@ export function advanceFootsteps(distanceSinceStep: number, distanceMoved: numbe
 }
 const GUARD_RADIUS = .34;
 const CELL = .5;
-const GRID_MIN_X = -5.5;
-const GRID_MIN_Z = -17.5;
-const GRID_WIDTH = 23;
-const GRID_DEPTH = 51;
 const STEP_DIRECTIONS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
-function walkable(x: number, z: number) {
-  if (Math.abs(x) > 5.5 || z < -17.5 || z > 7.5) return false;
+function walkable(x: number, z: number, level: Level) {
+  if (x < level.area.minX || x > level.area.maxX || z < level.area.minZ || z > level.area.maxZ) return false;
   const minX = x - GUARD_RADIUS, maxX = x + GUARD_RADIUS;
   const minZ = z - GUARD_RADIUS, maxZ = z + GUARD_RADIUS;
-  return !bounds.some(b => b.max.y > .2 && b.min.y < 1.7 &&
+  return !level.bounds.some(b => b.max.y > .2 && b.min.y < 1.7 &&
     minX < b.max.x && maxX > b.min.x && minZ < b.max.z && maxZ > b.min.z);
 }
 
-const navCells = Array.from({ length: GRID_WIDTH * GRID_DEPTH }, (_, index) => {
-  const x = GRID_MIN_X + (index % GRID_WIDTH) * CELL;
-  const z = GRID_MIN_Z + Math.floor(index / GRID_WIDTH) * CELL;
-  return walkable(x, z) ? new Vector3(x, 0, z) : null;
-});
+const navCache = new WeakMap<Level, { cells: (Vector3 | null)[]; width: number; depth: number }>();
+function navigation(level: Level) {
+  let nav = navCache.get(level);
+  if (nav) return nav;
+  const width = Math.round((level.area.maxX - level.area.minX) / CELL) + 1;
+  const depth = Math.round((level.area.maxZ - level.area.minZ) / CELL) + 1;
+  const cells = Array.from({ length: width * depth }, (_, index) => {
+    const x = level.area.minX + (index % width) * CELL;
+    const z = level.area.minZ + Math.floor(index / width) * CELL;
+    return walkable(x, z, level) ? new Vector3(x, 0, z) : null;
+  });
+  nav = { cells, width, depth };
+  navCache.set(level, nav);
+  return nav;
+}
 
-function closestCell(position: Vector3) {
+function closestCell(position: Vector3, navCells: (Vector3 | null)[]) {
   let nearest = -1;
   let distance = Infinity;
   navCells.forEach((cell, index) => {
@@ -78,18 +72,19 @@ function closestCell(position: Vector3) {
 }
 
 /** Returns a route through the authored doorways, avoiding furniture and walls. */
-export function pathTo(start: Vector3, goal: Vector3): Vector3[] {
-  const first = closestCell(start), last = closestCell(goal);
+export function pathTo(start: Vector3, goal: Vector3, level: Level = DEMO_LEVEL): Vector3[] {
+  const { cells: navCells, width, depth } = navigation(level);
+  const first = closestCell(start, navCells), last = closestCell(goal, navCells);
   if (first < 0 || last < 0) return [];
   const queue = [first];
   const cameFrom = new Int32Array(navCells.length).fill(-1);
   cameFrom[first] = first;
   for (let head = 0; head < queue.length && cameFrom[last] < 0; head++) {
-    const index = queue[head], col = index % GRID_WIDTH, row = Math.floor(index / GRID_WIDTH);
+    const index = queue[head], col = index % width, row = Math.floor(index / width);
     for (const [dx, dz] of STEP_DIRECTIONS) {
       const nx = col + dx, nz = row + dz;
-      if (nx < 0 || nx >= GRID_WIDTH || nz < 0 || nz >= GRID_DEPTH) continue;
-      const next = nz * GRID_WIDTH + nx;
+      if (nx < 0 || nx >= width || nz < 0 || nz >= depth) continue;
+      const next = nz * width + nx;
       if (!navCells[next] || cameFrom[next] >= 0) continue;
       cameFrom[next] = index;
       queue.push(next);
@@ -102,31 +97,32 @@ export function pathTo(start: Vector3, goal: Vector3): Vector3[] {
   return route;
 }
 
-export function clearSight(from: Vector3, to: Vector3) {
+export function clearSight(from: Vector3, to: Vector3, level: Level = DEMO_LEVEL) {
   const delta = to.clone().sub(from);
   const distance = delta.length();
   if (distance < .001) return true;
   const ray = new Ray(from, delta.normalize());
   const hit = new Vector3();
-  return !bounds.some(b => ray.intersectBox(b, hit) && hit.distanceTo(from) < distance - .05);
+  return !level.bounds.some(b => ray.intersectBox(b, hit) && hit.distanceTo(from) < distance - .05);
 }
 export interface SeekerFlight {
   position: Vector3;
+  targetKind: 'guard' | 'worker';
   targetIndex: number;
   route: Vector3[];
   replan: number;
   life: number;
 }
 
-export function advanceSeeker(flight: SeekerFlight, target: Vector3, dt: number): 'flying' | 'hit' | 'expired' {
+export function advanceSeeker(flight: SeekerFlight, target: Vector3, dt: number, level: Level = DEMO_LEVEL): 'flying' | 'hit' | 'expired' {
   flight.life -= dt;
   if (flight.life <= 0) return 'expired';
   const goal = new Vector3(target.x, 1.25, target.z);
   if (flight.position.distanceTo(goal) < .3) return 'hit';
   flight.replan -= dt;
-  if (clearSight(flight.position, goal)) flight.route = [];
+  if (clearSight(flight.position, goal, level)) flight.route = [];
   else if (flight.replan <= 0 || flight.route.length === 0) {
-    flight.route = pathTo(new Vector3(flight.position.x, 0, flight.position.z), target);
+    flight.route = pathTo(new Vector3(flight.position.x, 0, flight.position.z), target, level);
     flight.replan = .3;
     if (flight.route.length === 0) return 'expired';
   }
@@ -148,31 +144,53 @@ export function advanceSeeker(flight: SeekerFlight, target: Vector3, dt: number)
   }
   return flight.position.distanceTo(goal) < .3 ? 'hit' : 'flying';
 }
-export function seesPlayer(eye: Vector3, facing: number, player: Vector3) {
+export function seesPlayer(eye: Vector3, facing: number, player: Vector3, level: Level = DEMO_LEVEL) {
   const delta = player.clone().sub(eye);
   if (delta.length() > 10) return false;
   const horizontal = Math.hypot(delta.x, delta.z);
   const dot = horizontal < .001 ? 1 : (Math.sin(facing) * delta.x + Math.cos(facing) * delta.z) / horizontal;
-  return dot > Math.cos(Math.PI / 3) && clearSight(eye, player);
+  return dot > Math.cos(Math.PI / 3) && clearSight(eye, player, level);
 }
-export function safeFloor(point: Vector3) {
-  if (Math.abs(point.x) > 5.5 || point.z < -17.5 || point.z > 7.5) return false;
+export function safeFloor(point: Vector3, level: Level = DEMO_LEVEL) {
+  if (point.x < level.area.minX || point.x > level.area.maxX || point.z < level.area.minZ || point.z > level.area.maxZ) return false;
   const volume = new Box3().setFromCenterAndSize(new Vector3(point.x, .92, point.z), new Vector3(.7, 1.78, .7));
-  return !bounds.some(b => volume.intersectsBox(b));
+  return !level.bounds.some(b => volume.intersectsBox(b));
 }
 export interface Guard {
   position: Vector3; route: Vector3[]; waypoint: number; facing: number;
   suspicion: number; alarm: number; locked: number; alerted: boolean;
-  lastSeen: Vector3 | null; search: number; investigation: Vector3[];
+  armed: boolean; shotWindup: number; shotCooldown: number; muzzleFlash: number;
+  lastSeen: Vector3 | null; lastHeard: Vector3 | null; search: number; investigation: Vector3[];
   mode: 'patrol' | 'suspicious' | 'alert' | 'investigate' | 'search' | 'locked';
 }
-export function createGuards(): Guard[] {
-  return [ [[-3, 0, -3], [-3, 0, -8]], [[-2.8, 0, -13], [3, 0, -13]] ].map(route => ({
+export function createGuards(level: Level = DEMO_LEVEL): Guard[] {
+  return level.guards.map(({ route, armed }) => ({
     position: new Vector3(...route[0]), route: route.map(p => new Vector3(...p)), waypoint: 1,
     facing: Math.atan2(route[1][0] - route[0][0], route[1][2] - route[0][2]),
-    suspicion: 0, alarm: 0, locked: 0, alerted: false, lastSeen: null, search: 0,
+    suspicion: 0, alarm: 0, locked: 0, alerted: false, lastSeen: null, lastHeard: null, search: 0,
+    armed, shotWindup: 0, shotCooldown: 0, muzzleFlash: 0,
     investigation: [], mode: 'patrol' as const,
   }));
+}
+function hearNoise(g: Guard, soundAt: Vector3, radius: number, searchTime: number, level: Level) {
+  if (g.locked > 0) return false;
+  const distance = Math.hypot(g.position.x - soundAt.x, g.position.z - soundAt.z);
+  const openPath = clearSight(g.position.clone().setY(1.2), soundAt.clone().setY(1.2), level);
+  if (distance > radius * (openPath ? 1 : .4)) return false;
+  g.lastHeard = new Vector3(soundAt.x, 0, soundAt.z);
+  g.lastSeen = null;
+  g.investigation = [];
+  g.search = searchTime;
+  g.mode = 'investigate';
+  return true;
+}
+/** Footsteps provide a location to check, never visual confirmation or alarm progress. */
+export function hearFootstep(g: Guard, soundAt: Vector3, quiet: boolean, level: Level = DEMO_LEVEL) {
+  return hearNoise(g, soundAt, quiet ? QUIET_HEARING_RANGE : WALK_HEARING_RANGE, 3, level);
+}
+/** A projected sound can redirect guards without revealing the caster. */
+export function hearLure(g: Guard, soundAt: Vector3, level: Level = DEMO_LEVEL) {
+  return hearNoise(g, soundAt, LURE_HEARING_RANGE, 3.5, level);
 }
 function moveToward(g: Guard, target: Vector3, speed: number, dt: number) {
   const delta = target.clone().sub(g.position);
@@ -182,11 +200,15 @@ function moveToward(g: Guard, target: Vector3, speed: number, dt: number) {
   g.position.addScaledVector(delta.normalize(), step);
   return false;
 }
-export function updateGuard(g: Guard, player: Vector3, dt: number) {
-  if (g.locked > 0) { g.locked = Math.max(0, g.locked - dt); g.alarm = 0; g.mode = 'locked'; return; }
-  const visible = seesPlayer(g.position.clone().add(new Vector3(0, 1.65, 0)), g.facing, player);
+/** Returns true exactly when this guard fires. Damage is resolved after player abilities. */
+export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level = DEMO_LEVEL): boolean {
+  g.muzzleFlash = Math.max(0, g.muzzleFlash - dt);
+  if (g.locked > 0) { g.locked = Math.max(0, g.locked - dt); g.alarm = 0; g.shotWindup = 0; g.muzzleFlash = 0; g.mode = 'locked'; return false; }
+  g.shotCooldown = Math.max(0, g.shotCooldown - dt);
+  const visible = seesPlayer(g.position.clone().add(new Vector3(0, 1.65, 0)), g.facing, player, level);
   if (visible) {
     g.lastSeen = new Vector3(player.x, 0, player.z);
+    g.lastHeard = null;
     g.investigation = [];
     g.suspicion = Math.min(1, g.suspicion + dt / 1.2);
     if (g.suspicion >= 1) g.alerted = true;
@@ -194,29 +216,47 @@ export function updateGuard(g: Guard, player: Vector3, dt: number) {
     g.mode = g.alerted ? 'alert' : 'suspicious';
     g.facing = Math.atan2(player.x - g.position.x, player.z - g.position.z);
   } else { g.suspicion = Math.max(0, g.suspicion - dt * .25); }
-  if (g.alerted && visible) g.alarm += dt;
+  let fired = false;
+  if (g.armed) {
+    g.alarm = 0;
+    if (g.alerted && visible && g.shotCooldown <= 0) {
+      g.shotWindup += dt;
+      if (g.shotWindup >= SHOT_WINDUP) {
+        g.shotWindup = 0;
+        g.shotCooldown = SHOT_COOLDOWN;
+        g.muzzleFlash = .13;
+        fired = true;
+      }
+    } else if (!visible || !g.alerted) g.shotWindup = 0;
+  } else if (g.alerted && visible) g.alarm += dt;
   else g.alarm = Math.max(0, g.alarm - dt * 2);
-  if (visible) return;
-  if (g.lastSeen && g.search > 0) {
-    if (g.investigation.length === 0 && g.mode !== 'search') g.investigation = pathTo(g.position, g.lastSeen);
+  if (visible) return fired;
+  const investigationTarget = g.lastSeen ?? g.lastHeard;
+  if (investigationTarget && g.search > 0) {
+    if (g.investigation.length === 0 && g.mode !== 'search') g.investigation = pathTo(g.position, investigationTarget, level);
     if (g.investigation.length > 0) {
       g.mode = 'investigate';
       if (moveToward(g, g.investigation[0], 1.2, dt)) g.investigation.shift();
-      return;
+      return false;
     }
     g.mode = 'search';
     g.search = Math.max(0, g.search - dt);
     g.facing += Math.sin(g.search * 2) * dt * .65;
-    return;
+    return false;
   }
   const target = g.route[g.waypoint];
-  if (g.mode !== 'patrol') g.investigation = pathTo(g.position, target);
+  if (g.mode !== 'patrol') g.investigation = pathTo(g.position, target, level);
   g.lastSeen = null;
+  g.lastHeard = null;
   g.alerted = false;
   g.mode = 'patrol';
   if (g.investigation.length > 0) {
     if (moveToward(g, g.investigation[0], .85, dt)) g.investigation.shift();
-    return;
+    return false;
   }
   if (moveToward(g, target, .85, dt)) g.waypoint = (g.waypoint + 1) % g.route.length;
+  return false;
+}
+export function canGuardHit(g: Guard, player: Vector3, level: Level = DEMO_LEVEL) {
+  return g.armed && g.alerted && g.locked <= 0 && seesPlayer(g.position.clone().add(new Vector3(0, 1.65, 0)), g.facing, player, level);
 }

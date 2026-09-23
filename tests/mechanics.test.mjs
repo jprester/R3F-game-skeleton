@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { advanceFootsteps, advanceSeeker, clearSight, safeFloor, seesPlayer, createGuards, updateGuard, pathTo, LOCK_DURATION } from '../src/game/mechanics.ts';
+import { advanceFootsteps, advanceSeeker, canGuardHit, clearSight, hearFootstep, hearLure, safeFloor, seesPlayer, createGuards, updateGuard, pathTo, LOCK_DURATION, SHOT_COOLDOWN, SHOT_WINDUP } from '../src/game/mechanics.ts';
 const v = (x, y, z) => new Vector3(x, y, z);
 
 test('walls occlude sight, while open doorways allow it', () => {
@@ -24,11 +24,48 @@ test('guard perception respects facing, range and obstruction', () => {
   assert.equal(seesPlayer(v(0, 1.6, -3), 0, v(0, 1.6, 2)), false);
 });
 test('confirmed contact starts alarm, losing sight interrupts it', () => {
-  const guard = createGuards()[0]; guard.facing = 0;
-  for (let i = 0; i < 60; i++) updateGuard(guard, v(-3, 1.6, 2), .05);
+  const guard = createGuards()[1]; guard.facing = Math.PI / 2;
+  for (let i = 0; i < 60; i++) updateGuard(guard, v(0, 1.6, -13), .05);
   assert.equal(guard.alerted, true); assert.ok(guard.alarm > 1);
   for (let i = 0; i < 40; i++) updateGuard(guard, v(0, 1.6, 3), .05);
   assert.equal(guard.alarm, 0);
+});
+test('armed guard telegraphs fire after confirmation and never starts an alarm call', () => {
+  const [guard, alarmGuard] = createGuards();
+  assert.equal(guard.armed, true);
+  assert.equal(alarmGuard.armed, false);
+  guard.facing = Math.PI;
+  const player = v(-3, 1.5, -6);
+  let shots = 0, sawWindup = false;
+  for (let i = 0; i < 45; i++) {
+    shots += Number(updateGuard(guard, player, .05));
+    sawWindup ||= guard.shotWindup > 0;
+  }
+  assert.equal(sawWindup, true);
+  assert.equal(shots, 1);
+  assert.equal(guard.alarm, 0);
+  assert.ok(guard.shotCooldown > 0);
+  assert.ok(SHOT_WINDUP > .5, 'windup gives time to react');
+});
+test('armed guard repeats fire promptly while contact remains clear', () => {
+  const guard = createGuards()[0]; guard.facing = Math.PI;
+  const player = v(-3, 1.5, -6);
+  let shots = 0;
+  for (let i = 0; i < 105; i++) shots += Number(updateGuard(guard, player, .05));
+  assert.equal(shots, 3);
+  assert.ok(SHOT_COOLDOWN <= 1);
+});
+test('breaking sight or immobilizing the armed guard cancels a shot', () => {
+  const guard = createGuards()[0]; guard.facing = Math.PI;
+  for (let i = 0; i < 32; i++) updateGuard(guard, v(-3, 1.5, -6), .05);
+  assert.ok(guard.shotWindup > 0);
+  for (let i = 0; i < 30; i++) assert.equal(updateGuard(guard, v(0, 1.5, 3), .05), false);
+  assert.equal(guard.shotWindup, 0);
+  guard.locked = LOCK_DURATION;
+  for (let i = 0; i < 25; i++) assert.equal(updateGuard(guard, v(-3, 1.5, -6), .05), false);
+  assert.equal(canGuardHit(guard, v(-3, 1.5, -6)), false);
+  guard.locked = 0; guard.position.set(0, 0, -3); guard.facing = 0; guard.alerted = true;
+  assert.equal(canGuardHit(guard, v(0, 1.5, 3)), false, 'the central wall blocks a shot');
 });
 test('Motor Lock freezes patrol and interrupts alarm, then expires', () => {
   const guard = createGuards()[0]; const original = guard.position.clone();
@@ -88,6 +125,49 @@ test('footsteps follow distance walked and stop under Motor Lock', () => {
     distanceSinceStep = step.distanceSinceStep;
     assert.equal(step.count, 0);
   }
+});
+test('heard footsteps cause investigation without confirming sight or starting an alarm', () => {
+  const guard = createGuards()[0];
+  const sound = v(-3, 0, -1);
+  assert.equal(hearFootstep(guard, sound, true), false, 'slow movement stays quiet at 2 m');
+  assert.equal(hearFootstep(guard, sound, false), true);
+  assert.equal(guard.mode, 'investigate');
+  assert.equal(guard.lastSeen, null);
+  for (let i = 0; i < 35; i++) updateGuard(guard, v(0, 1.5, 5.5), .05);
+  assert.ok(guard.position.z > -3, 'guard approaches the sound');
+  assert.equal(guard.alerted, false);
+  assert.equal(guard.alarm, 0);
+});
+test('walls muffle footsteps and immobilized guards ignore them', () => {
+  const guard = createGuards()[0];
+  guard.position.set(0, 0, -2);
+  assert.equal(hearFootstep(guard, v(0, 0, 1), false), false, 'wall muffles a 3 m footstep');
+  guard.position.set(-3, 0, -2);
+  assert.equal(hearFootstep(guard, v(-3, 0, 1), false), true, 'open doorway carries the same sound');
+  guard.locked = LOCK_DURATION;
+  assert.equal(hearFootstep(guard, v(-3, 0, -2), false), false);
+});
+test('Echo Lure redirects investigation without revealing its caster', () => {
+  const guard = createGuards()[0];
+  guard.lastSeen = v(0, 0, 5.5);
+  guard.search = 4;
+  guard.mode = 'investigate';
+  const lure = v(-3, 0, -7);
+  assert.equal(hearLure(guard, lure), true);
+  assert.equal(guard.lastSeen, null);
+  assert.deepEqual(guard.lastHeard, lure);
+  for (let i = 0; i < 50; i++) updateGuard(guard, v(0, 1.5, 5.5), .05);
+  assert.ok(guard.position.z < -3.5, 'guard moves toward lure');
+  assert.equal(guard.alarm, 0);
+});
+test('Echo Lure is muffled by walls and ignored under immobilization', () => {
+  const guard = createGuards()[0];
+  guard.position.set(0, 0, -3);
+  assert.equal(hearLure(guard, v(0, 0, 1)), false);
+  guard.position.set(-3, 0, -3);
+  assert.equal(hearLure(guard, v(-3, 0, 1)), true);
+  guard.locked = LOCK_DURATION;
+  assert.equal(hearLure(guard, v(-3, 0, -4)), false);
 });
 test('Seeker Crystal tracks a guard around cover without cutting through solids', () => {
   const flight = { position: v(-3, 1.25, -3), targetIndex: 0, route: [], replan: 0, life: 8 };

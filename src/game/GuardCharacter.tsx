@@ -20,6 +20,7 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
   const rightArm = useRef<Group>(null);
   const marker = useRef<Mesh>(null);
   const beacon = useRef<Mesh>(null);
+  const muzzle = useRef<Mesh>(null);
   const lastPosition = useRef(guard.position.clone());
   const strideDistance = useRef(0);
 
@@ -27,6 +28,7 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
     body.current?.setNextKinematicTranslation({ x: guard.position.x, y: .9, z: guard.position.z });
     if (facing.current) facing.current.rotation.y = guard.facing;
     if (marker.current) marker.current.visible = guard.locked > 0;
+    if (muzzle.current) muzzle.current.visible = guard.muzzleFlash > 0 && guard.locked <= 0;
     if (beacon.current) {
       beacon.current.visible = guard.mode !== 'patrol';
       (beacon.current.material as MeshBasicMaterial).color.set(
@@ -42,14 +44,15 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
     const gait = Math.sin((strideDistance.current / GUARD_STRIDE) * Math.PI);
     const swing = moving ? gait * .48 : 0;
     const alert = guard.mode === 'alert';
+    const aiming = guard.armed && alert && guard.shotCooldown <= 0;
     const searching = guard.mode === 'search';
     const blend = Math.min(1, delta * 12);
     if (leftLeg.current) leftLeg.current.rotation.x += (swing - leftLeg.current.rotation.x) * blend;
     if (rightLeg.current) rightLeg.current.rotation.x += (-swing - rightLeg.current.rotation.x) * blend;
     if (leftArm.current) leftArm.current.rotation.x +=
-      ((alert ? -.55 : -swing * .55) - leftArm.current.rotation.x) * blend;
+      ((aiming ? -1.05 : alert ? -.55 : -swing * .55) - leftArm.current.rotation.x) * blend;
     if (rightArm.current) rightArm.current.rotation.x +=
-      ((alert ? -1.25 : swing * .55) - rightArm.current.rotation.x) * blend;
+      ((aiming ? -1.15 : alert ? -1.25 : swing * .55) - rightArm.current.rotation.x) * blend;
     if (torso.current) torso.current.rotation.x +=
       ((moving ? -.06 : 0) - torso.current.rotation.x) * blend;
     if (head.current) head.current.rotation.y +=
@@ -88,6 +91,11 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
         <mesh position={[0, -.67, .025]} castShadow><boxGeometry args={[.16, .27, .19]} /><meshStandardMaterial color={armor} roughness={.8} /></mesh>
         <mesh position={[side * .005, -.76, .035]} castShadow><boxGeometry args={[.14, .14, .18]} /><meshStandardMaterial color="#141d24" /></mesh>
         <mesh position={[side * -.06, -.22, .157]}><boxGeometry args={[.035, .17, .01]} /><meshStandardMaterial color={trim} /></mesh>
+        {side === 1 && guard.armed && <group position={[0, -.83, .1]}>
+          <mesh castShadow><boxGeometry args={[.12, .18, .2]} /><meshStandardMaterial color="#11191f" metalness={.45} roughness={.42} /></mesh>
+          <mesh position={[0, .075, .23]} castShadow><boxGeometry args={[.15, .11, .39]} /><meshStandardMaterial color="#20282c" metalness={.55} roughness={.38} /></mesh>
+          <mesh ref={muzzle} visible={false} position={[0, .075, .49]}><sphereGeometry args={[.11, 8, 6]} /><meshBasicMaterial color="#f5c783" /></mesh>
+        </group>}
       </group>)}
       <mesh ref={marker} visible={false} position={[0, 1.13, 0]}><boxGeometry args={[.75, 1.75, .59]} /><meshBasicMaterial color="#a7dbe5" wireframe transparent opacity={.46} /></mesh>
       <mesh ref={beacon} visible={false} position={[0, 2.04, 0]}><octahedronGeometry args={[.13]} /><meshBasicMaterial color="#d8c68c" /></mesh>
