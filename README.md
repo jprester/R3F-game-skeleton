@@ -20,6 +20,7 @@ Open http://localhost:3000 (or the URL Vite prints if that port is occupied). Ch
 | WASD | Move |
 | Mouse | Look (right-drag in fallback mode) |
 | Shift | Slow, quieter movement |
+| V | Life Sense: reveal everyone within 16 m through walls for 4 s, with where they are looking; 20 s cooldown |
 | C | Toggle crouch: lower eye line (hides behind desks and crates), slowest and quietest movement; Space stands up |
 | Space | Jump |
 | Left click | Motor Lock: target a guard or worker within 10 m; 6 s immobilization, 4 s cooldown |

@@ -25,6 +25,7 @@ The game is a React Three Fiber / Three.js / TypeScript / Vite app with Rapier c
 | --- | --- |
 | WASD / mouse | Move / look; pointer lock normally, right-drag fallback when capture is unavailable |
 | Shift / Space | Quiet slower movement / jump (Space stands up from a crouch) |
+| V — Life Sense | Reveals every guard and worker within 16 m of the cast point, through walls, for 4 s: state-coloured silhouette, head-height gaze line, full view cone and brighter focus cone on the floor. 20 s cooldown. Shows position and facing, never future patrol routes |
 | C | Toggle crouch: eye drops from 1.56 m to about 1.0 m (below 1.1 m crates and 1.5 m desks), 1.5 m/s, 1 m footstep hearing range |
 | LMB — Motor Lock | Instant, line-of-sight immobilization of a visible guard or worker within 10 m; lasts 6 s; 4 s cooldown |
 | Hold E — Restraint | Aim at an immobilized guard or worker within 1.8 m and hold for 1.5 s; binds them for the rest of the mission. Resets if released, the aim leaves the target, or the lock expires first |
@@ -32,6 +33,8 @@ The game is a React Three Fiber / Three.js / TypeScript / Vite app with Rapier c
 | F — Seeker Crystal | Launch at a visible guard or worker within 14 m; guided projectile follows around cover using pathfinding; holds target for 10 s on impact; 9 s cooldown |
 | R — Echo Lure | Project a sound to visible floor within 12 m; nearby guards investigate the location without identifying the caster; 8 s cooldown |
 | E / M / Escape | Interact / mute audio / pause |
+
+Awareness arcs around the crosshair (`src/game/awareness.ts`, drawn by `ThreatRing` in `App.tsx`) point to every guard or worker whose attention is on the player, by screen angle relative to camera yaw: amber suspicious or glancing, blue investigating or checking a colleague, orange radioing, red alert. Brightness follows suspicion or radio progress. Incapacitated observers drop out.
 
 The HUD shows health, cooldowns, aiming warnings, detection/alarm or worker-report progress, targeting prompts, and short feedback messages. Blink and Echo Lure have floor previews. Spells have restrained visual and synthesized audio cues.
 
@@ -63,6 +66,7 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 12. Added crouch, four-point partial exposure, peripheral/distance sight falloff, and the stance/visibility HUD.
 13. Added low crouch cover to both maps (left-route desk runs, vault crate, Quiet Entry lab bench) and moved a Records Wing desk that the armed guard's patrol walked through.
 14. Guards glance at brief glimpses instead of always investigating, turn gradually, and crouching slows confirmation more (0.6); tuned after playtesting found security investigated every distant peek.
+15. Added directional awareness arcs and the Life Sense pulse (V).
 
 ## Code map and important invariants
 
@@ -76,6 +80,8 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 | `src/game/worker.ts` | Worker state machine and report behavior; also receives the selected level |
 | `src/game/Environment.tsx` | Renders `level.solids` as Rapier fixed colliders and meshes; also lights, signs, panel, extraction ring, route cues |
 | `src/game/GuardCharacter.tsx`, `WorkerCharacter.tsx` | Code-built NPC blockouts and animations; character rigid bodies carry identifiers used by Rapier targeting rays |
+| `src/game/awareness.ts` | Pure threat-indicator list and screen-angle math for the awareness arcs |
+| `src/game/SenseMarker.tsx` | Life Sense overlay per NPC (depth-test-free silhouette, gaze line, view and focus cones); cones reuse the sight constants from `mechanics.ts` so the display matches detection |
 | `src/game/GuardFootsteps.ts` | Synthesized positional guard walking audio |
 | `src/game/game.css` | HUD and briefing appearance |
 | `tests/*.test.mjs` | Mechanics, level connectivity, worker behavior, guard coordination (`security.test.mjs`), and selected real Rapier collision queries |
@@ -97,7 +103,7 @@ npm test
 npm run build
 ```
 
-Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **50 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
+Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **55 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
 
 ## Prototype limits and useful next work
 

@@ -1,11 +1,16 @@
-import { useRef } from 'react';
+import { useRef, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CapsuleCollider, RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { Group, Mesh, MeshBasicMaterial } from 'three';
 import type { Worker } from './worker';
+import SenseMarker, { SENSE_COLORS, type SenseState } from './SenseMarker';
+
+const senseColor = (worker: Worker) => worker.locked > 0 || worker.restrained ? SENSE_COLORS.down
+  : worker.mode === 'fleeing' || worker.mode === 'calling' ? SENSE_COLORS.alert
+  : worker.mode === 'noticed' ? SENSE_COLORS.suspicious : SENSE_COLORS.calm;
 
 /** A visibly unarmed office worker, separate from the armored security silhouette. */
-export default function WorkerCharacter({ worker }: { worker: Worker }) {
+export default function WorkerCharacter({ worker, sense }: { worker: Worker; sense: RefObject<SenseState> }) {
   const body = useRef<RapierRigidBody>(null);
   const facing = useRef<Group>(null);
   const leftLeg = useRef<Group>(null);
@@ -70,6 +75,7 @@ export default function WorkerCharacter({ worker }: { worker: Worker }) {
         {/* Thin black-silver restraint bands pinning the arms to the torso. */}
         {[1.02, 1.3].map(y => <mesh key={y} position={[0, y, -.03]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.38, .014, 6, 32]} /><meshStandardMaterial color="#0d1418" emissive="#9fc3cc" emissiveIntensity={.55} metalness={.6} roughness={.3} /></mesh>)}
       </group>
+      <SenseMarker sense={sense} read={() => ({ position: worker.position, color: senseColor(worker), watching: worker.locked <= 0 && !worker.restrained })} />
       <mesh ref={marker} visible={false} position={[0, 1.1, 0]}><boxGeometry args={[.7, 1.7, .55]} /><meshBasicMaterial color="#a7dbe5" wireframe transparent opacity={.46} /></mesh>
       <mesh ref={beacon} visible={false} position={[0, 2.03, 0]}><octahedronGeometry args={[.13]} /><meshBasicMaterial color="#e8c790" /></mesh>
     </group>

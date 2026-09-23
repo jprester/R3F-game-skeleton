@@ -1,15 +1,20 @@
-import { useRef } from 'react';
+import { useRef, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CapsuleCollider, RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { Group, Mesh, MeshBasicMaterial } from 'three';
-import { GUARD_STRIDE, type Guard } from './mechanics';
+import { GUARD_STRIDE, incapacitated, type Guard } from './mechanics';
+import SenseMarker, { SENSE_COLORS, type SenseState } from './SenseMarker';
+
+const senseColor = (guard: Guard) => incapacitated(guard) ? SENSE_COLORS.down
+  : guard.alerted ? SENSE_COLORS.alert
+  : guard.mode === 'patrol' ? SENSE_COLORS.calm : SENSE_COLORS.suspicious;
 
 const uniform = '#263645';
 const armor = '#17242f';
 const trim = '#82949b';
 
 /** An articulated prototype guard that can later be replaced by a rigged GLB. */
-export default function GuardCharacter({ guard, index }: { guard: Guard; index: number }) {
+export default function GuardCharacter({ guard, index, sense }: { guard: Guard; index: number; sense: RefObject<SenseState> }) {
   const body = useRef<RapierRigidBody>(null);
   const facing = useRef<Group>(null);
   const torso = useRef<Group>(null);
@@ -117,6 +122,7 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
         {/* Thin black-silver restraint bands pinning the arms to the torso. */}
         {[1.02, 1.3].map(y => <mesh key={y} position={[0, y, -.03]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.45, .014, 6, 32]} /><meshStandardMaterial color="#0d1418" emissive="#9fc3cc" emissiveIntensity={.55} metalness={.6} roughness={.3} /></mesh>)}
       </group>
+      <SenseMarker sense={sense} read={() => ({ position: guard.position, color: senseColor(guard), watching: !incapacitated(guard) })} />
       <mesh ref={marker} visible={false} position={[0, 1.13, 0]}><boxGeometry args={[.75, 1.75, .59]} /><meshBasicMaterial color="#a7dbe5" wireframe transparent opacity={.46} /></mesh>
       <mesh ref={beacon} visible={false} position={[0, 2.04, 0]}><octahedronGeometry args={[.13]} /><meshBasicMaterial color="#d8c68c" /></mesh>
     </group>

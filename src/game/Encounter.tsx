@@ -6,15 +6,17 @@ import Environment from './Environment';
 import GuardCharacter from './GuardCharacter';
 import { GuardFootsteps } from './GuardFootsteps';
 import WorkerCharacter from './WorkerCharacter';
-import { advanceFootsteps, advanceSeeker, BLINK_COOLDOWN, BLINK_RANGE, canGuardHit, clearSight, createGuards, hearFootstep, hearLure, LOCK_COOLDOWN, LOCK_DURATION, CROUCH_EYE_OFFSET, CROUCH_SPEED, LOCK_RANGE, lockGuard, LURE_COOLDOWN, LURE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, RESTRAIN_RANGE, RESTRAIN_TIME, restrainGuard, safeFloor, SEEKER_COOLDOWN, SEEKER_LOCK_DURATION, SEEKER_RANGE, STAND_EYE_OFFSET, type Gait, type Guard, type RadioCall, type SeekerFlight } from './mechanics';
+import { advanceFootsteps, advanceSeeker, BLINK_COOLDOWN, BLINK_RANGE, canGuardHit, clearSight, createGuards, hearFootstep, hearLure, LOCK_COOLDOWN, LOCK_DURATION, CROUCH_EYE_OFFSET, CROUCH_SPEED, LIFE_SENSE_COOLDOWN, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, LOCK_RANGE, lockGuard, LURE_COOLDOWN, LURE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, RESTRAIN_RANGE, RESTRAIN_TIME, restrainGuard, safeFloor, SEEKER_COOLDOWN, SEEKER_LOCK_DURATION, SEEKER_RANGE, STAND_EYE_OFFSET, type Gait, type Guard, type RadioCall, type SeekerFlight } from './mechanics';
 import { createSecurity, updateSecurity } from './security';
+import { threats, type Threat } from './awareness';
+import type { SenseState } from './SenseMarker';
 import { createWorker, lockWorker, restrainWorker, updateWorker, WORKER_CALL_DURATION, type Worker } from './worker';
 import type { Level } from './levels';
 
 export interface HUD {
   locked: boolean; status: 'playing' | 'success' | 'failed'; carrying: boolean;
   failureReason: 'guard' | 'worker' | 'shot' | 'fall' | null;
-  blink: number; motor: number; seeker: number; lure: number; seekerFlying: boolean; suspicion: number; alarm: number;
+  blink: number; motor: number; seeker: number; lure: number; sense: number; senseActive: number; seekerFlying: boolean; suspicion: number; alarm: number;
   health: number; shotWindup: number;
   /** Progress (0–1) of the Restraint currently being applied. */
   restrain: number;
@@ -22,11 +24,13 @@ export interface HUD {
   radio: number; radioReason: RadioCall['reason'] | null; wary: number;
   workerMode: Worker['mode']; workerReport: number;
   message: string; target: string; elapsed: number;
-  awareness: string; pulse: { id: number; kind: 'blink' | 'motor' | 'seeker' | 'lure' | 'restrain' | 'hit' } | null; muted: boolean;
+  awareness: string; pulse: { id: number; kind: 'blink' | 'motor' | 'seeker' | 'lure' | 'restrain' | 'sense' | 'hit' } | null; muted: boolean;
   /** Stance, and how much of the player the most-exposed observer can see (0–1). */
   crouched: boolean; exposure: number;
+  /** Screen-edge indicators for every observer whose attention is on the player. */
+  threats: Threat[];
 }
-export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, blink: 0, motor: 0, seeker: 0, lure: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, restrain: 0, radio: 0, radioReason: null, wary: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false, crouched: false, exposure: 0 };
+export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, blink: 0, motor: 0, seeker: 0, lure: 0, sense: 0, senseActive: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, restrain: 0, radio: 0, radioReason: null, wary: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false, crouched: false, exposure: 0, threats: [] };
 
 /** Enough tracers for every armed guard in a level to fire in the same frame. */
 const TRACER_POOL = 4;
@@ -37,6 +41,8 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
   const lurePreview = useRef<Mesh>(null);
   const lureEffect = useRef<Mesh>(null);
   const lureEffectTime = useRef(0);
+  const senseState = useRef<SenseState>({ time: 0, origin: new Vector3() });
+  const senseWave = useRef<Mesh>(null);
   const lockBeam = useRef<Mesh>(null);
   const shotTracers = useRef<(Group | null)[]>([]);
   const seekerMesh = useRef<Group>(null);
@@ -57,7 +63,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
   const artifact = useRef(new Vector3(...level.artifact)).current;
   const playerStepDistance = useRef(0);
   const footstepAudio = useRef<GuardFootsteps | null>(null);
-  const input = useRef({ keys: new Set<string>(), yaw: 0, pitch: 0, locked: false, motor: false, seeker: false, lure: false, blink: false, interact: false, jump: false, crouch: false });
+  const input = useRef({ keys: new Set<string>(), yaw: 0, pitch: 0, locked: false, motor: false, seeker: false, lure: false, blink: false, interact: false, jump: false, crouch: false, sense: false });
   // Eye height above the body centre, eased between standing and crouched.
   const eyeOffset = useRef(STAND_EYE_OFFSET);
   const game = useRef({ ...initialHUD, messageTime: 0, publish: 0 });
@@ -67,7 +73,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
   const unlockAudio = () => {
     if (audio.current?.state === 'suspended') void audio.current.resume();
   };
-  const cue = (kind: 'notice' | 'alert' | 'motor' | 'blink' | 'core' | 'seeker' | 'panic' | 'report' | 'aim' | 'radio' | 'radioDone' | 'restrain') => {
+  const cue = (kind: 'notice' | 'alert' | 'motor' | 'blink' | 'core' | 'seeker' | 'panic' | 'report' | 'aim' | 'radio' | 'radioDone' | 'restrain' | 'sense') => {
     const context = audio.current;
     if (!context || context.state !== 'running' || game.current.muted) return;
     const now = context.currentTime;
@@ -76,7 +82,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       motor: [560, 230, .22, .055], blink: [155, 410, .24, .06],
       core: [330, 660, .42, .035], seeker: [720, 340, .3, .04],
       panic: [480, 760, .3, .04], report: [680, 520, .35, .05], aim: [350, 490, .21, .035],
-      radio: [1250, 1180, .12, .018], radioDone: [900, 620, .26, .03], restrain: [300, 120, .5, .06],
+      radio: [1250, 1180, .12, .018], radioDone: [900, 620, .26, .03], restrain: [300, 120, .5, .06], sense: [200, 95, .7, .045],
     }[kind];
     const [start, end, duration, volume] = settings;
     const oscillator = context.createOscillator();
@@ -142,17 +148,18 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
 
   useEffect(() => {
     const state = input.current;
-    const lock = () => { state.locked = document.pointerLockElement === gl.domElement; if (!state.locked) { state.keys.clear(); state.motor = state.seeker = state.lure = state.blink = state.interact = state.jump = false; } };
+    const lock = () => { state.locked = document.pointerLockElement === gl.domElement; if (!state.locked) { state.keys.clear(); state.motor = state.seeker = state.lure = state.blink = state.interact = state.jump = state.sense = false; } };
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Escape') { onPause(); return; }
       if (!state.locked && !dragLook) return;
       unlockAudio();
-      if (['Space', 'KeyQ', 'KeyE', 'KeyF', 'KeyR', 'KeyC', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
+      if (['Space', 'KeyQ', 'KeyE', 'KeyF', 'KeyR', 'KeyC', 'KeyV', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
       state.keys.add(e.code);
       if (e.repeat) return;
       if (e.code === 'KeyM') game.current.muted = !game.current.muted;
       if (e.code === 'KeyQ') state.blink = true;
       if (e.code === 'KeyC') state.crouch = !state.crouch;
+      if (e.code === 'KeyV') state.sense = true;
       if (e.code === 'KeyF') state.seeker = true;
       if (e.code === 'KeyR') state.lure = true;
       if (e.code === 'KeyE') state.interact = true;
@@ -162,7 +169,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     const move = (e: MouseEvent) => { if (state.locked || (dragLook && e.buttons === 2)) { state.yaw -= e.movementX * .002; state.pitch = Math.max(-1.45, Math.min(1.45, state.pitch - e.movementY * .002)); } };
     const mouse = (e: MouseEvent) => { if ((state.locked || dragLook) && e.button === 0) { unlockAudio(); state.motor = true; } };
     const context = (e: MouseEvent) => e.preventDefault();
-    const blur = () => { onPause(); state.keys.clear(); state.motor = state.seeker = state.lure = state.blink = state.interact = state.jump = false; if (document.pointerLockElement) document.exitPointerLock(); };
+    const blur = () => { onPause(); state.keys.clear(); state.motor = state.seeker = state.lure = state.blink = state.interact = state.jump = state.sense = false; if (document.pointerLockElement) document.exitPointerLock(); };
     document.addEventListener('pointerlockchange', lock);
     window.addEventListener('keydown', down); window.addEventListener('keyup', up);
     window.addEventListener('mousemove', move); gl.domElement.addEventListener('mousedown', mouse);
@@ -221,6 +228,14 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         tracer.scale.y = length;
       }
     });
+    if (senseWave.current) {
+      // The pulse sweeps out to its full range in the first 0.8 s.
+      const elapsed = LIFE_SENSE_DURATION - senseState.current.time;
+      senseWave.current.visible = senseState.current.time > 0 && elapsed < .8;
+      senseWave.current.position.set(senseState.current.origin.x, .03, senseState.current.origin.z);
+      senseWave.current.scale.setScalar(Math.max(.01, elapsed / .8 * LIFE_SENSE_RANGE));
+      (senseWave.current.material as MeshBasicMaterial).opacity = .35 * (1 - elapsed / .8);
+    }
     if (lureEffect.current) {
       if (active) lureEffectTime.current = Math.max(0, lureEffectTime.current - dt);
       lureEffect.current.visible = lureEffectTime.current > 0;
@@ -229,7 +244,8 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     }
     g.locked = (state.locked || dragLook) && g.status === 'playing';
     if (active) {
-      g.elapsed += dt; g.blink = Math.max(0, g.blink - dt); g.motor = Math.max(0, g.motor - dt); g.seeker = Math.max(0, g.seeker - dt); g.lure = Math.max(0, g.lure - dt);
+      g.elapsed += dt; g.blink = Math.max(0, g.blink - dt); g.motor = Math.max(0, g.motor - dt); g.seeker = Math.max(0, g.seeker - dt); g.lure = Math.max(0, g.lure - dt); g.sense = Math.max(0, g.sense - dt);
+      senseState.current.time = Math.max(0, senseState.current.time - dt);
       g.messageTime -= dt; if (g.messageTime <= 0) g.message = '';
       const movement = new Vector3(Number(state.keys.has('KeyD')) - Number(state.keys.has('KeyA')), 0, Number(state.keys.has('KeyS')) - Number(state.keys.has('KeyW')));
       movement.normalize().applyAxisAngle(new Vector3(0, 1, 0), state.yaw).multiplyScalar(state.crouch ? CROUCH_SPEED : state.keys.has('ShiftLeft') ? 2 : 3.6);
@@ -390,6 +406,16 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         say('Echo Lure placed. Security may investigate the sound.');
       }
     }
+    if (active && state.sense) {
+      if (g.sense > 0) say('Life Sense recharging.');
+      else {
+        senseState.current = { time: LIFE_SENSE_DURATION, origin: new Vector3(position.x, 0, position.z) };
+        g.sense = LIFE_SENSE_COOLDOWN;
+        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'sense' };
+        cue('sense');
+        say(`Life Sense · everyone within ${LIFE_SENSE_RANGE} m, for ${LIFE_SENSE_DURATION} seconds`);
+      }
+    }
     if (active && state.blink) {
       if (g.blink > 0) say('Blink recharging.');
       else if (!destination) say('Aim at clear floor within 7 m. Arrival must be unobstructed.');
@@ -424,7 +450,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         if (g.health === 0) { g.status = 'failed'; g.failureReason = 'shot'; }
       }
     }
-    state.motor = state.seeker = state.lure = state.blink = state.interact = false;
+    state.motor = state.seeker = state.lure = state.blink = state.interact = state.sense = false;
     if (seekerMesh.current) {
       seekerMesh.current.visible = !!seekerFlight.current;
       if (seekerFlight.current) {
@@ -443,6 +469,8 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     g.wary = security.current.wary;
     g.workerMode = worker.current.mode;
     g.crouched = state.crouch;
+    g.senseActive = senseState.current.time;
+    g.threats = threats(guards.current, worker.current, camera.position, state.yaw);
     g.exposure = Math.max(worker.current.exposure, ...guards.current.map(v => v.exposure));
     g.workerReport = worker.current.report;
     g.awareness = g.alarm > 0 ? 'ALARM CALL' :
@@ -469,8 +497,9 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     <RigidBody ref={player} position={level.spawn} colliders={false} enabledRotations={[false, false, false]} friction={0} ccd>
       <CapsuleCollider args={[.55, .3]} />
     </RigidBody>
-    {guards.current.map((guard, index) => <GuardCharacter key={index} guard={guard} index={index} />)}
-    <WorkerCharacter worker={worker.current} />
+    {guards.current.map((guard, index) => <GuardCharacter key={index} guard={guard} index={index} sense={senseState} />)}
+    <WorkerCharacter worker={worker.current} sense={senseState} />
+    <mesh ref={senseWave} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.97, 1, 64]} /><meshBasicMaterial color="#cfe6ec" transparent opacity={0} depthWrite={false} /></mesh>
     <mesh ref={preview} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.3, .38, 40]} /><meshBasicMaterial color="#b9e2e5" /></mesh>
     <mesh ref={lurePreview} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.46, .5, 40]} /><meshBasicMaterial color="#d9ba83" transparent opacity={.75} depthWrite={false} /></mesh>
     <mesh ref={lureEffect} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.33, .37, 40]} /><meshBasicMaterial color="#e8c993" transparent opacity={0} depthWrite={false} /></mesh>

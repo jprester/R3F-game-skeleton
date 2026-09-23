@@ -2,9 +2,26 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import Encounter, { HUD, initialHUD } from "./game/Encounter";
-import { PLAYER_MAX_HEALTH, RADIO_CALL_TIME, SHOT_WINDUP, WARY_DURATION } from "./game/mechanics";
+import { LIFE_SENSE_COOLDOWN, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, SHOT_WINDUP, WARY_DURATION } from "./game/mechanics";
+import type { Threat } from "./game/awareness";
 import { ANNEX_LEVEL, DEMO_LEVEL, type Level } from "./game/levels";
 import "./game/game.css";
+
+/** An arc of the indicator ring, centred on `angle` (0 = ahead, clockwise positive). */
+const THREAT_RADIUS = 200;
+const THREAT_SPAN = .2;
+function threatArc(angle: number) {
+  const point = (a: number) => `${(THREAT_RADIUS * Math.sin(a)).toFixed(1)} ${(-THREAT_RADIUS * Math.cos(a)).toFixed(1)}`;
+  return `M ${point(angle - THREAT_SPAN)} A ${THREAT_RADIUS} ${THREAT_RADIUS} 0 0 1 ${point(angle + THREAT_SPAN)}`;
+}
+function ThreatRing({ threats }: { threats: Threat[] }) {
+  if (threats.length === 0) return null;
+  return (
+    <svg className="threats" viewBox="-250 -250 500 500" aria-hidden="true">
+      {threats.map(threat => <path key={threat.id} d={threatArc(threat.angle)} className={threat.state} style={{ opacity: .3 + .7 * threat.level }} />)}
+    </svg>
+  );
+}
 
 /** The single awareness meter shows the most urgent threat, its countdown and fill. */
 function detectionMeter(hud: HUD) {
@@ -102,6 +119,7 @@ export default function App() {
       {hud.locked && (
         <>
           {hud.pulse && <div key={hud.pulse.id} className={`spell-pulse ${hud.pulse.kind}`} />}
+          <ThreatRing threats={hud.threats} />
           <div className="crosshair">+</div>
           {hud.restrain > 0 && <div className="restrain" aria-label="Restraint progress"><i style={{ width: `${hud.restrain * 100}%` }} /></div>}
           <div className="target">{hud.target}</div>
@@ -142,10 +160,15 @@ export default function App() {
             <strong>Echo Lure</strong>
             <span>{hud.lure > 0 ? `${hud.lure.toFixed(1)}s` : "READY"}</span>
           </div>
+          <div>
+            <kbd>V</kbd>
+            <strong>Life Sense</strong>
+            <span>{hud.senseActive > 0 ? "SENSING" : hud.sense > 0 ? `${hud.sense.toFixed(1)}s` : "READY"}</span>
+          </div>
         </div>
         <p>
           WASD move · {dragLook ? "Right-drag look" : "Mouse look"} · Shift quiet
-          · C crouch · Space jump · E interact · M {hud.muted ? 'unmute' : 'mute'} · Esc pause
+          · C crouch · V sense · Space jump · E interact · M {hud.muted ? 'unmute' : 'mute'} · Esc pause
         </p>
       </div>
       {!hud.locked && (
@@ -224,6 +247,17 @@ export default function App() {
                   <b>R / Echo Lure</b> Aim at clear floor within 12 metres to
                   place a sound that draws nearby guards to investigate. The
                   amber ring marks valid placement. Cooldown: 8 seconds.
+                </p>
+                <p>
+                  <b>V / Life Sense</b> Reveal everyone within {LIFE_SENSE_RANGE} metres
+                  through walls for {LIFE_SENSE_DURATION} seconds, with where they are
+                  looking: the bright cone is where they spot you fastest. Cooldown:{" "}
+                  {LIFE_SENSE_COOLDOWN} seconds.
+                </p>
+                <p>
+                  <b>Awareness arcs</b> Arcs around the crosshair point to anyone
+                  noticing you: amber suspicious, blue investigating, orange on the
+                  radio, red alert. Brighter means closer to acting.
                 </p>
                 <p>
                   <b>Office worker</b> Unarmed. If they recognize you, they run

@@ -31,6 +31,13 @@ h1 { font-size: 25px; letter-spacing: -.03em; font-weight: 450; margin: 7px 0; }
 .spell-pulse.motor { background: radial-gradient(circle at center, #d3e7eb22, transparent 25%); }
 .spell-pulse.seeker { background: radial-gradient(circle at center, #c8eaf022, transparent 38%); }
 .spell-pulse.lure { background: radial-gradient(circle at center, #ebce9d1f, transparent 34%); }
+.spell-pulse.sense { background: radial-gradient(circle at center, transparent 30%, #bfe3ea26 80%, #bfe3ea3a); animation-duration: .8s; }
+.threats { position: absolute; left: 50%; top: 50%; width: 500px; height: 500px; transform: translate(-50%, -50%); pointer-events: none; overflow: visible; }
+.threats path { fill: none; stroke-width: 5; stroke-linecap: round; filter: drop-shadow(0 0 3px #000a); transition: opacity .12s; }
+.threats .suspicious { stroke: #d0c29c; }
+.threats .investigating { stroke: #a7c7d0; }
+.threats .radio { stroke: #e0ae78; }
+.threats .alert { stroke: #e8847a; }
 .spell-pulse.restrain { background: radial-gradient(circle at center, #c6dde41c, transparent 30%); }
 .restrain { position: absolute; top: calc(50% + 16px); left: 50%; transform: translateX(-50%); width: 64px; height: 2px; background: #16202c; pointer-events: none; }
 .restrain i { display: block; height: 100%; background: #c6dde4; }

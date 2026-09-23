@@ -42,10 +42,18 @@ export const GLANCE_TIME = 2;
 export const SUSPICIOUS_TURN_RATE = 2.5;
 export const ALERT_TURN_RATE = 8;
 export const SIGHT_RANGE = 10;
-const SIGHT_HALF_ANGLE = Math.PI / 3;
+export const SIGHT_HALF_ANGLE = Math.PI / 3;
 /** Inside this cone and distance, sight confirms at full speed; beyond it, down to half speed. */
-const FOCUS_HALF_ANGLE = Math.PI / 6;
-const FOCUS_RANGE = 4;
+export const FOCUS_HALF_ANGLE = Math.PI / 6;
+export const FOCUS_RANGE = 4;
+/**
+ * Life Sense: a pulse that reveals every living being within range of where it was cast,
+ * through walls, with their facing. It shows where people are, not where they will go.
+ */
+export const LIFE_SENSE_RANGE = 16;
+export const LIFE_SENSE_DURATION = 4;
+export const LIFE_SENSE_COOLDOWN = 20;
+export const senses = (origin: Vector3, target: Vector3) => Math.hypot(target.x - origin.x, target.z - origin.z) <= LIFE_SENSE_RANGE;
 export const SHOT_WINDUP = .6;
 export const SHOT_COOLDOWN = 1;
 export const SHOT_HEARING_RANGE = 14;
