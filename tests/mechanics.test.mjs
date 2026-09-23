@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { advanceFootsteps, advanceSeeker, canGuardHit, clearSight, hearFootstep, hearLure, safeFloor, seesPlayer, createGuards, updateGuard, pathTo, LOCK_DURATION, SHOT_COOLDOWN, SHOT_WINDUP } from '../src/game/mechanics.ts';
+import { PATROL_PAUSE, PATROL_TURN_RATE, advanceFootsteps, advanceSeeker, canGuardHit, clearSight, hearFootstep, hearLure, safeFloor, seesPlayer, createGuards, updateGuard, pathTo, LOCK_DURATION, SHOT_COOLDOWN, SHOT_WINDUP } from '../src/game/mechanics.ts';
 const v = (x, y, z) => new Vector3(x, y, z);
 
 test('walls occlude sight, while open doorways allow it', () => {
@@ -186,4 +186,34 @@ test('Seeker Crystal tracks a guard around cover without cutting through solids'
   }
   assert.equal(result, 'hit');
   assert.ok(flight.position.distanceTo(v(3, 1.25, -7)) < .3);
+});
+
+test('a guard pauses at the end of his patrol, then turns around gradually', () => {
+  const guard = createGuards()[0]; // (-3, -3) -> (-3, -8), facing -z
+  const hidden = v(0, 1.5, 5.5);
+  let t = 0;
+  while (guard.waypoint === 1 && t < 10) { updateGuard(guard, hidden, .05); t += .05; }
+  const end = guard.position.clone(), facing = guard.facing;
+  assert.ok(end.distanceTo(v(-3, 0, -8)) < .05, 'reached the far end');
+  for (let t = 0; t < PATROL_PAUSE - .1; t += .05) updateGuard(guard, hidden, .05);
+  assert.equal(guard.facing, facing, 'still looking the way he walked');
+  assert.ok(guard.position.distanceTo(end) < 1e-6, 'standing still');
+  for (let t = 0; t < 1; t += .05) updateGuard(guard, hidden, .05);
+  const turned = Math.abs(Math.atan2(Math.sin(guard.facing - facing), Math.cos(guard.facing - facing)));
+  assert.ok(turned > .5 && turned < PATROL_TURN_RATE * 1.05 + .2, `mid-turn after 1 s: ${turned.toFixed(2)} rad`);
+  assert.ok(guard.position.distanceTo(end) < 1e-6, 'turns in place before walking back');
+  for (let t = 0; t < 3; t += .05) updateGuard(guard, hidden, .05);
+  assert.ok(guard.position.z > -7.5, 'then walks back along his route');
+});
+
+test('a player behind a guard has time to react when he reaches the end of his patrol', () => {
+  const guard = createGuards()[0];
+  const behind = v(-3, 1.5, -4.5);
+  // Walk him to the far end while the player shadows him out of his view cone.
+  guard.position.set(-3, 0, -7.6);
+  let t = 0;
+  while (guard.waypoint === 1 && t < 5) { updateGuard(guard, behind, .05); t += .05; }
+  let unseen = 0;
+  while (guard.suspicion === 0 && unseen < 5) { updateGuard(guard, behind, .05); unseen += .05; }
+  assert.ok(unseen >= 1.8, `unseen for ${unseen.toFixed(2)} s after he reached the end`);
 });

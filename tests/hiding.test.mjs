@@ -111,3 +111,23 @@ test('suspicious guards turn toward a glimpse gradually', () => {
   updateGuard(guard, standing(-1, -5.3), .05);
   assert.ok(Math.abs(guard.facing - (Math.PI + 1)) < .2, 'no instant snap');
 });
+
+test('reciprocity: a shoulder past a corner the player cannot see around never gives them away', async () => {
+  const { ANNEX_LEVEL: level } = await import('../src/game/levels.ts');
+  const { clearSight, safeFloor } = await import('../src/game/mechanics.ts');
+  const eyes = createGuards(level).flatMap(g => [0, .5, 1].map(t => g.route[0].clone().lerp(g.route[1], t).setY(1.65)));
+  let cornerPeeks = 0;
+  for (let x = level.area.minX; x <= level.area.maxX; x += .5) for (let z = level.area.minZ; z <= level.area.maxZ; z += .5) {
+    if (!safeFloor(v(x, 0, z), level)) continue;
+    const head = v(x, 1.01, z);
+    for (const eye of eyes) {
+      if (head.distanceTo(eye) > 10 || clearSight(eye, head, level) || clearSight(eye, v(x, .66, z), level)) continue;
+      const across = v(head.z - eye.z, 0, eye.x - head.x).normalize().multiplyScalar(.24);
+      const shoulder = head.clone().setY(.76);
+      if (!clearSight(eye, shoulder.clone().add(across), level) && !clearSight(eye, shoulder.clone().sub(across), level)) continue;
+      cornerPeeks++;
+      assert.equal(playerExposure(eye, Math.atan2(head.x - eye.x, head.z - eye.z), head, true, level), 0, `shoulder leak at ${x}, ${z}`);
+    }
+  }
+  assert.ok(cornerPeeks > 50, `the scenario is common in the Records Wing (${cornerPeeks} cases)`);
+});

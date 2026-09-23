@@ -41,6 +41,13 @@ export const GLANCE_TIME = 2;
 /** Radians per second. Suspicious guards turn toward a glimpse at a human pace; confirmed contact snaps faster. */
 export const SUSPICIOUS_TURN_RATE = 2.5;
 export const ALERT_TURN_RATE = 8;
+/** Walking turn rates: a patrolling guard takes about 2 s to about-face, an investigating one about 1 s. */
+export const PATROL_TURN_RATE = 1.4;
+export const INVESTIGATE_TURN_RATE = 3;
+/** Guards only step off once they roughly face their heading, so reversals are a visible turn in place. */
+const WALK_ALIGNMENT = .5;
+/** Seconds a patrolling guard stands at each end of his route before turning back. */
+export const PATROL_PAUSE = .8;
 export const SIGHT_RANGE = 10;
 export const SIGHT_HALF_ANGLE = Math.PI / 3;
 /** Inside this cone and distance, sight confirms at full speed; beyond it, down to half speed. */
@@ -236,17 +243,23 @@ export function seesPlayer(eye: Vector3, facing: number, player: Vector3, level:
 }
 /**
  * Fraction (0–1) of the player a viewer can see: head, both shoulders and torso are each
- * checked against cover, so peeking past a corner or over a desk is only partial exposure.
+ * checked against cover, so peeking over a desk or out of a doorway is only partial exposure.
+ *
+ * Reciprocity: shoulders only count when the head or torso is also visible. The camera is the
+ * head, so a shoulder poking past a corner the player cannot see around never gives them away.
  */
 export function playerExposure(eye: Vector3, facing: number, player: Vector3, crouched: boolean, level: Level = DEMO_LEVEL) {
   if (player.distanceTo(eye) > SIGHT_RANGE || facingDot(eye, facing, player) <= Math.cos(SIGHT_HALF_ANGLE)) return 0;
-  // Shoulders sit either side of the sight line, so they show around the edge of cover first.
+  const head = clearSight(eye, player, level);
+  const torso = clearSight(eye, player.clone().setY(player.y - (crouched ? .35 : .6)), level);
+  if (!head && !torso) return 0;
+  // Shoulders sit either side of the sight line.
   const across = new Vector3(player.z - eye.z, 0, eye.x - player.x);
   if (across.lengthSq() < 1e-6) across.set(1, 0, 0);
   across.normalize().multiplyScalar(.24);
   const shoulders = player.clone().setY(player.y - .25);
-  const samples = [player, shoulders.clone().add(across), shoulders.clone().sub(across), player.clone().setY(player.y - (crouched ? .35 : .6))];
-  return samples.filter(point => clearSight(eye, point, level)).length / samples.length;
+  const visibleShoulders = [shoulders.clone().add(across), shoulders.clone().sub(across)].filter(point => clearSight(eye, point, level)).length;
+  return (Number(head) + Number(torso) + visibleShoulders) / 4;
 }
 /**
  * How fast sight confirms the player, relative to a clear, close, head-on view (1).
@@ -299,6 +312,8 @@ export interface Guard {
   curious: boolean;
   /** Seconds left looking toward a brief glimpse, and the direction to look. */
   glance: number; glanceFacing: number;
+  /** Seconds left standing at a patrol endpoint. */
+  pause: number;
   mode: 'patrol' | 'suspicious' | 'alert' | 'investigate' | 'search' | 'check' | 'locked' | 'restrained';
 }
 export function createGuards(level: Level = DEMO_LEVEL): Guard[] {
@@ -308,7 +323,7 @@ export function createGuards(level: Level = DEMO_LEVEL): Guard[] {
     suspicion: 0, alarm: 0, locked: 0, alerted: false, lastSeen: null, lastHeard: null, search: 0,
     armed, shotWindup: 0, shotCooldown: 0, muzzleFlash: 0,
     investigation: [], checking: null, radio: null, radioed: false, reported: false, restrained: false, exposure: 0,
-    seen: false, curious: false, glance: 0, glanceFacing: 0, mode: 'patrol' as const,
+    seen: false, curious: false, glance: 0, glanceFacing: 0, pause: 0, mode: 'patrol' as const,
   }));
 }
 /** Immobilizes a guard. A caster position means the guard saw where the spell came from. */
@@ -375,11 +390,14 @@ function turnToward(g: Guard, angle: number, maxStep: number) {
   const difference = Math.atan2(Math.sin(angle - g.facing), Math.cos(angle - g.facing));
   g.facing += Math.max(-maxStep, Math.min(maxStep, difference));
 }
-function moveToward(g: Guard, target: Vector3, speed: number, dt: number) {
+/** Turns toward the target at `turnRate`, and walks once roughly facing it. True on arrival. */
+function moveToward(g: Guard, target: Vector3, speed: number, dt: number, turnRate: number) {
   const delta = target.clone().sub(g.position);
   if (delta.length() < .01) return true;
+  const heading = Math.atan2(delta.x, delta.z);
+  turnToward(g, heading, turnRate * dt);
+  if (Math.abs(Math.atan2(Math.sin(heading - g.facing), Math.cos(heading - g.facing))) > WALK_ALIGNMENT) return false;
   const step = Math.min(dt * speed, delta.length());
-  g.facing = Math.atan2(delta.x, delta.z);
   g.position.addScaledVector(delta.normalize(), step);
   return false;
 }
@@ -400,13 +418,13 @@ function checkColleague(g: Guard, dt: number, level: Level, context: GuardContex
   const offset = victim.position.clone().sub(g.position).setY(0);
   if (offset.length() <= CHECK_DISTANCE) {
     g.investigation = [];
-    g.facing = Math.atan2(offset.x, offset.z);
+    turnToward(g, Math.atan2(offset.x, offset.z), INVESTIGATE_TURN_RATE * dt);
     g.radio ??= { reason: 'down', time: 0, position: victim.position.clone(), victim: { kind: victim.kind, index: victim.index } };
     return;
   }
   if (g.investigation.length === 0) g.investigation = pathTo(g.position, victim.position, level);
   if (g.investigation.length === 0) { g.checking = null; return; }
-  if (moveToward(g, g.investigation[0], 1.2, dt)) g.investigation.shift();
+  if (moveToward(g, g.investigation[0], 1.2, dt, INVESTIGATE_TURN_RATE)) g.investigation.shift();
 }
 
 /** Returns true exactly when this guard fires. Damage is resolved after player abilities. */
@@ -432,6 +450,7 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   g.seen = visible;
   if (visible) {
     g.glance = 0;
+    g.pause = 0;
     g.lastSeen = new Vector3(player.x, 0, player.z);
     g.lastHeard = null;
     g.investigation = [];
@@ -490,7 +509,7 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
     if (g.investigation.length === 0 && g.mode !== 'search') g.investigation = pathTo(g.position, investigationTarget, level);
     if (g.investigation.length > 0) {
       g.mode = 'investigate';
-      if (moveToward(g, g.investigation[0], 1.2, dt)) g.investigation.shift();
+      if (moveToward(g, g.investigation[0], 1.2, dt, INVESTIGATE_TURN_RATE)) g.investigation.shift();
       return false;
     }
     g.mode = 'search';
@@ -507,10 +526,14 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   g.curious = false;
   g.mode = 'patrol';
   if (g.investigation.length > 0) {
-    if (moveToward(g, g.investigation[0], .85, dt)) g.investigation.shift();
+    if (moveToward(g, g.investigation[0], .85, dt, PATROL_TURN_RATE)) g.investigation.shift();
     return false;
   }
-  if (moveToward(g, target, .85, dt)) g.waypoint = (g.waypoint + 1) % g.route.length;
+  if (g.pause > 0) { g.pause = Math.max(0, g.pause - dt); return false; }
+  if (moveToward(g, target, .85, dt, PATROL_TURN_RATE)) {
+    g.waypoint = (g.waypoint + 1) % g.route.length;
+    g.pause = PATROL_PAUSE;
+  }
   return false;
 }
 /** Any visible part of the player can be hit; full cover (for example crouched behind a desk) cannot. */

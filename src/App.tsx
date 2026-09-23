@@ -4,6 +4,51 @@ import { Physics } from "@react-three/rapier";
 import Encounter, { HUD, initialHUD } from "./game/Encounter";
 import { LIFE_SENSE_COOLDOWN, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, SHOT_WINDUP, WARY_DURATION } from "./game/mechanics";
 import type { Threat } from "./game/awareness";
+import { formatTime, isBetterRun, rateOperation, RATINGS, type BestRun, type OperationStats } from "./game/debrief";
+
+/** Personal bests live in this browser only; storage can be unavailable, so every access is guarded. */
+const bestKey = (level: Level) => `wayfarer.best.${level.id}`;
+function readBest(level: Level): BestRun | null {
+  try { return JSON.parse(localStorage.getItem(bestKey(level)) ?? "null"); } catch { return null; }
+}
+function writeBest(level: Level, run: BestRun) {
+  try { localStorage.setItem(bestKey(level), JSON.stringify(run)); } catch { /* best is a convenience only */ }
+}
+
+function Debrief({ hud, previous, newBest }: { hud: HUD; previous: BestRun | null; newBest: boolean }) {
+  const stats: OperationStats = hud.stats;
+  const rating = hud.status === "success" ? rateOperation(stats) : null;
+  const casts = Object.values(stats.casts).reduce((sum, n) => sum + n, 0);
+  const SPELL_NAMES = { motor: "lock", blink: "blink", seeker: "seeker", lure: "lure", sense: "sense" } as const;
+  const used = (Object.keys(SPELL_NAMES) as (keyof typeof SPELL_NAMES)[]).filter(kind => stats.casts[kind] > 0)
+    .map(kind => `${SPELL_NAMES[kind]} ${stats.casts[kind]}`);
+  const rows: [string, string | number][] = [
+    ["Time", formatTime(hud.elapsed)],
+    ["Times spotted", stats.spotted],
+    ["Times noticed", stats.noticed],
+    ["Radio reports", stats.reports],
+    ["Calls cut off", stats.callsCutOff],
+    ["Hits taken", stats.hitsTaken],
+    ["Restraints", stats.restraints],
+    ["Spells cast", [casts, ...used].join(" · ")],
+  ];
+  return (
+    <div className="debrief">
+      {rating && (
+        <div className={`rating ${rating}`}>
+          <strong>{RATINGS[rating].title}</strong>
+          <span>{RATINGS[rating].summary}</span>
+        </div>
+      )}
+      <dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <p className="best">
+        {newBest ? "New personal best."
+          : previous ? `Personal best: ${RATINGS[previous.rating].title} · ${formatTime(previous.elapsed)}`
+          : "No completed run on this level yet."}
+      </p>
+    </div>
+  );
+}
 import { ANNEX_LEVEL, DEMO_LEVEL, type Level } from "./game/levels";
 import "./game/game.css";
 
@@ -37,6 +82,8 @@ export default function App() {
   const [hud, setHUD] = useState<HUD>(initialHUD);
   const [run, setRun] = useState(0);
   const [level, setLevel] = useState<Level>(ANNEX_LEVEL);
+  const [best, setBest] = useState<{ previous: BestRun | null; newBest: boolean }>({ previous: null, newBest: false });
+  const recordedRun = useRef(-1);
   const [error, setError] = useState("");
   const [dragLook, setDragLook] = useState(false);
   const [preferDragLook, setPreferDragLook] = useState(false);
@@ -62,6 +109,17 @@ export default function App() {
         ),
       );
   };
+  // Record the outcome once per attempt: compare against the stored best before overwriting it.
+  useEffect(() => {
+    if (hud.status === "playing" || recordedRun.current === run) return;
+    recordedRun.current = run;
+    const previous = readBest(level);
+    if (hud.status !== "success") { setBest({ previous, newBest: false }); return; }
+    const attempt: BestRun = { rating: rateOperation(hud.stats), elapsed: hud.elapsed };
+    const newBest = isBetterRun(attempt, previous);
+    if (newBest) writeBest(level, attempt);
+    setBest({ previous, newBest });
+  }, [hud.status, hud.stats, hud.elapsed, level, run]);
   const restart = () => {
     setDragLook(false);
     setHUD(initialHUD);
@@ -178,7 +236,7 @@ export default function App() {
               {hud.status === "success"
                 ? "OPERATION COMPLETE"
                 : hud.status === "failed"
-                  ? "OPERATION COMPROMISED"
+                  ? "OPERATION FAILED"
                   : hud.elapsed > 0
                     ? "OPERATION PAUSED"
                     : "INSERTION BRIEF"}
@@ -192,7 +250,7 @@ export default function App() {
             </h2>
             <p>
               {hud.status === "success"
-                ? `Extracted in ${Math.floor(hud.elapsed / 60)}m ${Math.floor(hud.elapsed % 60)}s. The annex is behind you.`
+                ? "The annex is behind you. Debrief:"
                 : hud.status === "failed"
                   ? hud.failureReason === 'worker'
                     ? "The office worker completed a report at the Research alarm panel. Immobilize them or leave before the countdown ends."
@@ -205,6 +263,7 @@ export default function App() {
                     ? "Enter the test office, recover the transit core from Research, and return here. Two guards and an office worker stand between you and the objective."
                     : "Enter the records wing, take the direct security route on the left or the longer covered service route on the right, recover the core from the vault, and return here. Armed guards hold the left; alarm guards patrol the right."}
             </p>
+            {hud.status !== "playing" && <Debrief hud={hud} previous={best.previous} newBest={best.newBest} />}
             <div className="level-picker" aria-label="Select level">
               <button className={level.id === 'annex' ? 'selected' : ''} onClick={() => chooseLevel(ANNEX_LEVEL)}>Records wing <small>Mission</small></button>
               <button className={level.id === 'demo' ? 'selected' : ''} onClick={() => chooseLevel(DEMO_LEVEL)}>Quiet entry <small>Mechanics demo</small></button>

@@ -9,6 +9,7 @@ import WorkerCharacter from './WorkerCharacter';
 import { advanceFootsteps, advanceSeeker, BLINK_COOLDOWN, BLINK_RANGE, canGuardHit, clearSight, createGuards, hearFootstep, hearLure, LOCK_COOLDOWN, LOCK_DURATION, CROUCH_EYE_OFFSET, CROUCH_SPEED, LIFE_SENSE_COOLDOWN, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, LOCK_RANGE, lockGuard, LURE_COOLDOWN, LURE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, RESTRAIN_RANGE, RESTRAIN_TIME, restrainGuard, safeFloor, SEEKER_COOLDOWN, SEEKER_LOCK_DURATION, SEEKER_RANGE, STAND_EYE_OFFSET, type Gait, type Guard, type RadioCall, type SeekerFlight } from './mechanics';
 import { createSecurity, updateSecurity } from './security';
 import { threats, type Threat } from './awareness';
+import { createStats, type CastKind, type OperationStats } from './debrief';
 import type { SenseState } from './SenseMarker';
 import { createWorker, lockWorker, restrainWorker, updateWorker, WORKER_CALL_DURATION, type Worker } from './worker';
 import type { Level } from './levels';
@@ -29,8 +30,10 @@ export interface HUD {
   crouched: boolean; exposure: number;
   /** Screen-edge indicators for every observer whose attention is on the player. */
   threats: Threat[];
+  /** Running tally for the end-of-operation debrief. */
+  stats: OperationStats;
 }
-export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, blink: 0, motor: 0, seeker: 0, lure: 0, sense: 0, senseActive: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, restrain: 0, radio: 0, radioReason: null, wary: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false, crouched: false, exposure: 0, threats: [] };
+export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, blink: 0, motor: 0, seeker: 0, lure: 0, sense: 0, senseActive: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, restrain: 0, radio: 0, radioReason: null, wary: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false, crouched: false, exposure: 0, threats: [], stats: createStats() };
 
 /** Enough tracers for every armed guard in a level to fire in the same frame. */
 const TRACER_POOL = 4;
@@ -66,9 +69,20 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
   const input = useRef({ keys: new Set<string>(), yaw: 0, pitch: 0, locked: false, motor: false, seeker: false, lure: false, blink: false, interact: false, jump: false, crouch: false, sense: false });
   // Eye height above the body centre, eased between standing and crouched.
   const eyeOffset = useRef(STAND_EYE_OFFSET);
-  const game = useRef({ ...initialHUD, messageTime: 0, publish: 0 });
+  // Fresh stats per mount: the initialHUD object is shared, so its tally must not be mutated.
+  const game = useRef({ ...initialHUD, stats: createStats(), messageTime: 0, publish: 0 });
+  const workerWitnessed = useRef(false);
   const { camera, gl } = useThree();
   const { world, rapier } = useRapier();
+  const CASTS: readonly string[] = ['motor', 'blink', 'seeker', 'lure', 'sense'] satisfies CastKind[];
+  /** Screen pulse for a spell, restraint or hit, counted for the debrief. */
+  const pulse = (kind: NonNullable<HUD['pulse']>['kind']) => {
+    const g = game.current;
+    g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind };
+    if (CASTS.includes(kind)) g.stats.casts[kind as CastKind]++;
+    else if (kind === 'restrain') g.stats.restraints++;
+    else if (kind === 'hit') g.stats.hitsTaken++;
+  };
   const say = (message: string) => { game.current.message = message; game.current.messageTime = 2.5; };
   const unlockAudio = () => {
     if (audio.current?.state === 'suspended') void audio.current.resume();
@@ -268,6 +282,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       const beforeWindups = guards.current.map(guard => guard.shotWindup);
       const events = updateSecurity(guards.current, worker.current, camera.position, dt, level, security.current, state.crouch);
       shots.push(...events.shots);
+      g.stats.reports += events.reports.length;
       for (const report of events.reports) {
         cue('radioDone');
         say(report.reason === 'contact' ? 'Contact radioed · security converging on your position'
@@ -277,6 +292,8 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       guards.current.forEach((guard, index) => {
         if (guard.armed && guard.shotWindup > 0 && beforeWindups[index] === 0) cue('aim');
         if (guard.radio && !radioActive.current[index]) cue('radio');
+        // A call that vanished without completing was cut off (the lock lands later in the previous frame).
+        if (!guard.radio && radioActive.current[index] && !events.reports.some(report => report.guard === index)) g.stats.callsCutOff++;
         radioActive.current[index] = !!guard.radio;
         const distanceMoved = lastGuardPositions.current[index].distanceTo(guard.position);
         lastGuardPositions.current[index].copy(guard.position);
@@ -288,13 +305,15 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
           for (let i = 0; i < step.count; i++) footstepAudio.current.play(index, guard.position, throughWall);
         }
         const before = previousModes.current[index];
-        if (guard.mode === 'suspicious' && before === 'patrol') cue('notice');
+        if (guard.mode === 'suspicious' && before === 'patrol') { cue('notice'); g.stats.noticed++; }
         if ((guard.mode === 'investigate' || guard.mode === 'check') && before === 'patrol') cue('notice');
-        if (guard.mode === 'alert' && before !== 'alert') cue('alert');
+        if (guard.mode === 'alert' && before !== 'alert') { cue('alert'); g.stats.spotted++; }
         previousModes.current[index] = guard.mode;
       });
       updateWorker(worker.current, camera.position, dt, level, state.crouch);
-      if (worker.current.mode === 'noticed' && previousWorkerMode.current === 'working') cue('notice');
+      if (worker.current.mode === 'noticed' && previousWorkerMode.current === 'working') { cue('notice'); g.stats.noticed++; }
+      if (worker.current.witnessed && !workerWitnessed.current) g.stats.spotted++;
+      workerWitnessed.current = worker.current.witnessed;
       if (worker.current.mode === 'fleeing' && previousWorkerMode.current !== 'fleeing') cue('panic');
       if (worker.current.mode === 'calling' && previousWorkerMode.current !== 'calling') cue('report');
       previousWorkerMode.current = worker.current.mode;
@@ -340,7 +359,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       if (restraint.current.progress >= RESTRAIN_TIME) {
         if (targetWorker) restrainWorker(targetWorker); else if (targetGuard) restrainGuard(targetGuard);
         restraint.current = { target: null, progress: 0 };
-        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'restrain' };
+        pulse('restrain');
         cue('restrain');
         say(`${label} restrained · out of the operation, but can still be found`);
       }
@@ -375,7 +394,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         }
         g.motor = LOCK_COOLDOWN;
         lockEffect.current = { time: .22, from: camera.position.clone(), to: target.position.clone().add(new Vector3(0, 1.15, 0)) };
-        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'motor' };
+        pulse('motor');
         cue('motor');
         say(`${targetWorker ? 'Worker' : 'Guard'} immobilized · 6 seconds`);
       }
@@ -389,7 +408,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       else {
         seekerFlight.current = { position: new Vector3(camera.position.x, 1.25, camera.position.z), targetKind: targetWorker ? 'worker' : 'guard', targetIndex: targetWorker ? 0 : targetIndex, route: [], replan: 0, life: 8 };
         g.seeker = SEEKER_COOLDOWN; g.seekerFlying = true;
-        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'seeker' };
+        pulse('seeker');
         cue('seeker'); say('Seeker Crystal tracking target.');
       }
     }
@@ -399,7 +418,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       else {
         guards.current.forEach(guard => hearLure(guard, lurePoint, level));
         g.lure = LURE_COOLDOWN;
-        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'lure' };
+        pulse('lure');
         lureEffectTime.current = .7;
         lureEffect.current?.position.set(lurePoint.x, .03, lurePoint.z);
         cueLure(lurePoint);
@@ -411,7 +430,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       else {
         senseState.current = { time: LIFE_SENSE_DURATION, origin: new Vector3(position.x, 0, position.z) };
         g.sense = LIFE_SENSE_COOLDOWN;
-        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'sense' };
+        pulse('sense');
         cue('sense');
         say(`Life Sense · everyone within ${LIFE_SENSE_RANGE} m, for ${LIFE_SENSE_DURATION} seconds`);
       }
@@ -419,7 +438,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     if (active && state.blink) {
       if (g.blink > 0) say('Blink recharging.');
       else if (!destination) say('Aim at clear floor within 7 m. Arrival must be unobstructed.');
-      else { body.setTranslation({ x: destination.x, y: .92, z: destination.z }, true); lastPlayerPosition.current.set(destination.x, .92, destination.z); body.setLinvel({ x: 0, y: 0, z: 0 }, true); g.blink = BLINK_COOLDOWN; g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'blink' }; cue('blink'); say('Translation verified.'); }
+      else { body.setTranslation({ x: destination.x, y: .92, z: destination.z }, true); lastPlayerPosition.current.set(destination.x, .92, destination.z); body.setLinvel({ x: 0, y: 0, z: 0 }, true); g.blink = BLINK_COOLDOWN; pulse('blink'); cue('blink'); say('Translation verified.'); }
     }
     const nearArtifact = camera.position.distanceTo(artifact) < 2.3 && clearSight(camera.position, artifact, level);
     const atExit = Math.hypot(position.x - level.extraction[0], position.z - level.extraction[2]) < 1.4;
@@ -445,7 +464,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       const finalEye = new Vector3(finalPosition.x, finalPosition.y + eyeOffset.current, finalPosition.z);
       if (g.status === 'playing' && canGuardHit(shooter, finalEye, level, state.crouch)) {
         g.health = Math.max(0, g.health - 1);
-        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'hit' };
+        pulse('hit');
         say(`Guard fire · ${g.health}/${PLAYER_MAX_HEALTH} vitality`);
         if (g.health === 0) { g.status = 'failed'; g.failureReason = 'shot'; }
       }
@@ -489,7 +508,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     if (g.status !== 'playing' && dragLook) onPause();
     if (g.status !== 'playing' && state.locked) document.exitPointerLock();
     g.publish += rawDelta;
-    if (g.publish > .08) { g.publish = 0; onHUD({ ...g }); }
+    if (g.publish > .08) { g.publish = 0; onHUD({ ...g, stats: { ...g.stats, casts: { ...g.stats.casts } } }); }
   });
 
   return <>

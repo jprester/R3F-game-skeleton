@@ -54,6 +54,19 @@ kbd { font: 10px monospace; border: 1px solid #adc4ce66; padding: 5px; border-ra
 .briefing { width: min(490px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; padding: 26px 34px; background: linear-gradient(140deg, #20323ef2, #111e29f7); border: 1px solid #9ab8c43d; box-shadow: 0 25px 100px #0005; }
 h2 { font-size: 34px; line-height: 1.1; letter-spacing: -.04em; font-weight: 450; margin: 15px 0 20px; }
 .briefing p { color: #b5c4cf; font-size: 13px; line-height: 1.7; }
+.debrief { border-top: 1px solid #9ab8c425; border-bottom: 1px solid #9ab8c425; margin: 14px 0; padding: 12px 0; }
+.debrief .rating { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; padding-left: 12px; border-left: 3px solid #9ab8c4; }
+.debrief .rating strong { font-size: 22px; font-weight: 500; letter-spacing: .04em; color: #e6eef2; }
+.debrief .rating span { font-size: 12px; color: #b5c4cf; }
+.debrief .rating.ghost { border-color: #bfe3ea; }
+.debrief .rating.discreet { border-color: #d0c29c; }
+.debrief .rating.compromised { border-color: #e8847a; }
+.debrief dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }
+.debrief dl > div { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; border-bottom: 1px solid #9ab8c414; padding-bottom: 4px; }
+.debrief dl > div:last-child { grid-column: 1 / -1; }
+.debrief dt { color: #8fa3ae; }
+.debrief dd { margin: 0; color: #e0e8ed; font-variant-numeric: tabular-nums; text-align: right; }
+.debrief .best { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8fa3ae; margin: 10px 0 0; }
 .brief-details { border-top: 1px solid #9ab8c425; margin: 14px 0; }
 .level-picker { display: flex; gap: 8px; margin: 18px 0; }
 .level-picker button { display: block; flex: 1; min-width: 0; text-align: left; padding: 11px 12px; color: #b5c4cf; background: #14232d; border: 1px solid #9ab8c43d; }
