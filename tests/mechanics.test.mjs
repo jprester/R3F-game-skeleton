@@ -85,9 +85,14 @@ test('insertion point remains safe throughout both patrol routes', () => {
   }
 });
 test('investigation routes through doorways and avoids furniture', () => {
-  const route = pathTo(v(-3, 0, -3), v(0, 0, 5.5));
+  const start = v(-3, 0, -3);
+  const route = pathTo(start, v(0, 0, 5.5));
   assert.ok(route.length > 0);
-  assert.ok(route.some(point => Math.abs(point.z) < .6 && point.x < -2.8), 'uses the left doorway');
+  // Smoothed routes skip grid cells, so check where the walked line crosses the wall at z = 0.
+  const legs = [start, ...route].slice(0, -1).map((from, i) => [from, route[i]]);
+  const [from, to] = legs.find(([a, b]) => a.z < 0 && b.z >= 0);
+  const doorwayX = from.x + (to.x - from.x) * (-from.z / (to.z - from.z));
+  assert.ok(doorwayX > -4.2 && doorwayX < -2.5, 'crosses through the left doorway');
   assert.ok(route.every(point => safeFloor(point)), 'every stop has body clearance');
 
   const guard = createGuards()[0];

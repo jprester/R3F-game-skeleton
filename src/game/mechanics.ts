@@ -24,7 +24,15 @@ export const WALK_HEARING_RANGE = 5;
 export const QUIET_HEARING_RANGE = 1.5;
 export const SHOT_WINDUP = .6;
 export const SHOT_COOLDOWN = 1;
+export const SHOT_HEARING_RANGE = 14;
 export const PLAYER_MAX_HEALTH = 3;
+export const DETECTION_TIME = 1.2;
+/** After a radio report, security is primed and confirms contact faster. */
+export const WARY_DETECTION_TIME = .8;
+export const WARY_DURATION = 30;
+export const RADIO_CALL_TIME = 2;
+/** How close a guard walks to an incapacitated colleague before radioing it in. */
+export const CHECK_DISTANCE = 1.4;
 
 /** Walk distance drives the sound, so a stationary or immobilized guard stays quiet. */
 export function advanceFootsteps(distanceSinceStep: number, distanceMoved: number) {
@@ -60,21 +68,56 @@ function navigation(level: Level) {
   return nav;
 }
 
-function closestCell(position: Vector3, navCells: (Vector3 | null)[]) {
-  let nearest = -1;
-  let distance = Infinity;
-  navCells.forEach((cell, index) => {
-    if (!cell) return;
-    const d = cell.distanceToSquared(position);
-    if (d < distance) { distance = d; nearest = index; }
-  });
-  return nearest;
+/** Direct grid lookup, widening in rings only when the position sits inside furniture. */
+function closestCell(position: Vector3, level: Level) {
+  const { cells, width, depth } = navigation(level);
+  const col = Math.max(0, Math.min(width - 1, Math.round((position.x - level.area.minX) / CELL)));
+  const row = Math.max(0, Math.min(depth - 1, Math.round((position.z - level.area.minZ) / CELL)));
+  if (cells[row * width + col]) return row * width + col;
+  for (let ring = 1; ring < Math.max(width, depth); ring++) {
+    let nearest = -1, distance = Infinity;
+    for (let r = row - ring; r <= row + ring; r++) {
+      for (let c = col - ring; c <= col + ring; c++) {
+        if (r < 0 || r >= depth || c < 0 || c >= width) continue;
+        if (Math.max(Math.abs(r - row), Math.abs(c - col)) !== ring) continue;
+        const cell = cells[r * width + c];
+        const d = cell?.distanceToSquared(position) ?? Infinity;
+        if (d < distance) { distance = d; nearest = r * width + c; }
+      }
+    }
+    if (nearest >= 0) return nearest;
+  }
+  return -1;
+}
+
+/** True when a guard-sized body can walk the straight segment between two floor points. */
+function segmentWalkable(from: Vector3, to: Vector3, level: Level) {
+  const steps = Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / (CELL / 2));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    if (!walkable(from.x + (to.x - from.x) * t, from.z + (to.z - from.z) * t, level)) return false;
+  }
+  return true;
+}
+
+/** Drops grid waypoints that a straight walk can skip, so NPCs cut corners instead of zigzagging. */
+function smoothRoute(start: Vector3, route: Vector3[], level: Level) {
+  const smoothed: Vector3[] = [];
+  let anchor = start;
+  for (let i = 0; i < route.length;) {
+    let far = i;
+    while (far + 1 < route.length && segmentWalkable(anchor, route[far + 1], level)) far++;
+    smoothed.push(route[far]);
+    anchor = route[far];
+    i = far + 1;
+  }
+  return smoothed;
 }
 
 /** Returns a route through the authored doorways, avoiding furniture and walls. */
 export function pathTo(start: Vector3, goal: Vector3, level: Level = DEMO_LEVEL): Vector3[] {
   const { cells: navCells, width, depth } = navigation(level);
-  const first = closestCell(start, navCells), last = closestCell(goal, navCells);
+  const first = closestCell(start, level), last = closestCell(goal, level);
   if (first < 0 || last < 0) return [];
   const queue = [first];
   const cameFrom = new Int32Array(navCells.length).fill(-1);
@@ -94,7 +137,7 @@ export function pathTo(start: Vector3, goal: Vector3, level: Level = DEMO_LEVEL)
   const route: Vector3[] = [];
   for (let step = last; step !== first; step = cameFrom[step]) route.push(navCells[step]!.clone());
   route.reverse();
-  return route;
+  return smoothRoute(start, route, level);
 }
 
 export function clearSight(from: Vector3, to: Vector3, level: Level = DEMO_LEVEL) {
@@ -156,12 +199,27 @@ export function safeFloor(point: Vector3, level: Level = DEMO_LEVEL) {
   const volume = new Box3().setFromCenterAndSize(new Vector3(point.x, .92, point.z), new Vector3(.7, 1.78, .7));
   return !level.bounds.some(b => volume.intersectsBox(b));
 }
+/** An incapacitated guard or worker that security may find. */
+export interface Victim { kind: 'guard' | 'worker'; index: number }
+export interface Downed extends Victim { position: Vector3; reported: boolean }
+/** A radio call completes after RADIO_CALL_TIME unless the caller is immobilized first. */
+export interface RadioCall { reason: 'contact' | 'down'; time: number; position: Vector3; victim: Victim | null }
+export interface GuardContext { downed: Downed[]; wary: boolean }
+const CALM: GuardContext = { downed: [], wary: false };
+
 export interface Guard {
   position: Vector3; route: Vector3[]; waypoint: number; facing: number;
   suspicion: number; alarm: number; locked: number; alerted: boolean;
   armed: boolean; shotWindup: number; shotCooldown: number; muzzleFlash: number;
   lastSeen: Vector3 | null; lastHeard: Vector3 | null; search: number; investigation: Vector3[];
-  mode: 'patrol' | 'suspicious' | 'alert' | 'investigate' | 'search' | 'locked';
+  /** Colleague this guard is walking over to check. */
+  checking: (Victim & { position: Vector3 }) | null;
+  radio: RadioCall | null;
+  /** Contact already radioed during this engagement; cleared when the guard returns to patrol. */
+  radioed: boolean;
+  /** As a victim: this incapacitation has already been radioed in. */
+  reported: boolean;
+  mode: 'patrol' | 'suspicious' | 'alert' | 'investigate' | 'search' | 'check' | 'locked';
 }
 export function createGuards(level: Level = DEMO_LEVEL): Guard[] {
   return level.guards.map(({ route, armed }) => ({
@@ -169,8 +227,17 @@ export function createGuards(level: Level = DEMO_LEVEL): Guard[] {
     facing: Math.atan2(route[1][0] - route[0][0], route[1][2] - route[0][2]),
     suspicion: 0, alarm: 0, locked: 0, alerted: false, lastSeen: null, lastHeard: null, search: 0,
     armed, shotWindup: 0, shotCooldown: 0, muzzleFlash: 0,
-    investigation: [], mode: 'patrol' as const,
+    investigation: [], checking: null, radio: null, radioed: false, reported: false, mode: 'patrol' as const,
   }));
+}
+/** Immobilizes a guard. A caster position means the guard saw where the spell came from. */
+export function lockGuard(g: Guard, duration: number, caster: Vector3 | null = null) {
+  if (g.locked <= 0) g.reported = false;
+  g.locked = Math.max(g.locked, duration);
+  g.alerted = true; g.suspicion = 1;
+  if (caster) { g.lastSeen = new Vector3(caster.x, 0, caster.z); g.search = 4; }
+  g.alarm = 0; g.shotWindup = 0; g.muzzleFlash = 0;
+  g.radio = null; g.checking = null; g.mode = 'locked';
 }
 function hearNoise(g: Guard, soundAt: Vector3, radius: number, searchTime: number, level: Level) {
   if (g.locked > 0) return false;
@@ -179,8 +246,25 @@ function hearNoise(g: Guard, soundAt: Vector3, radius: number, searchTime: numbe
   if (distance > radius * (openPath ? 1 : .4)) return false;
   g.lastHeard = new Vector3(soundAt.x, 0, soundAt.z);
   g.lastSeen = null;
+  g.checking = null;
   g.investigation = [];
   g.search = searchTime;
+  g.mode = 'investigate';
+  return true;
+}
+/** Gunfire pulls guards who are not already engaged toward the shooter. */
+export function hearShot(g: Guard, shooterAt: Vector3, level: Level = DEMO_LEVEL) {
+  if (g.mode === 'alert' || g.mode === 'suspicious') return false;
+  return hearNoise(g, shooterAt, SHOT_HEARING_RANGE, 4, level);
+}
+/** A colleague's contact report sends this guard to the reported position. */
+export function receiveContact(g: Guard, reportedAt: Vector3) {
+  if (g.locked > 0 || g.mode === 'alert' || g.mode === 'suspicious') return false;
+  g.lastSeen = new Vector3(reportedAt.x, 0, reportedAt.z);
+  g.lastHeard = null;
+  g.checking = null;
+  g.investigation = [];
+  g.search = 4;
   g.mode = 'investigate';
   return true;
 }
@@ -200,22 +284,59 @@ function moveToward(g: Guard, target: Vector3, speed: number, dt: number) {
   g.position.addScaledVector(delta.normalize(), step);
   return false;
 }
+/** Walks to an incapacitated colleague, then radios it in from beside them. */
+function checkColleague(g: Guard, dt: number, level: Level, context: GuardContext) {
+  const check = g.checking!;
+  const victim = context.downed.find(d => d.kind === check.kind && d.index === check.index);
+  if (!victim || victim.reported) {
+    // The colleague recovered or was already reported: look around the spot, then resume.
+    g.checking = null;
+    g.lastHeard = check.position.clone();
+    g.investigation = [];
+    g.search = 4;
+    g.mode = 'search';
+    return;
+  }
+  g.mode = 'check';
+  const offset = victim.position.clone().sub(g.position).setY(0);
+  if (offset.length() <= CHECK_DISTANCE) {
+    g.investigation = [];
+    g.facing = Math.atan2(offset.x, offset.z);
+    g.radio ??= { reason: 'down', time: 0, position: victim.position.clone(), victim: { kind: victim.kind, index: victim.index } };
+    return;
+  }
+  if (g.investigation.length === 0) g.investigation = pathTo(g.position, victim.position, level);
+  if (g.investigation.length === 0) { g.checking = null; return; }
+  if (moveToward(g, g.investigation[0], 1.2, dt)) g.investigation.shift();
+}
+
 /** Returns true exactly when this guard fires. Damage is resolved after player abilities. */
-export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level = DEMO_LEVEL): boolean {
+export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level = DEMO_LEVEL, context: GuardContext = CALM): boolean {
   g.muzzleFlash = Math.max(0, g.muzzleFlash - dt);
-  if (g.locked > 0) { g.locked = Math.max(0, g.locked - dt); g.alarm = 0; g.shotWindup = 0; g.muzzleFlash = 0; g.mode = 'locked'; return false; }
+  if (g.locked > 0) {
+    g.locked = Math.max(0, g.locked - dt);
+    g.alarm = 0; g.shotWindup = 0; g.muzzleFlash = 0; g.radio = null; g.checking = null; g.mode = 'locked';
+    return false;
+  }
   g.shotCooldown = Math.max(0, g.shotCooldown - dt);
-  const visible = seesPlayer(g.position.clone().add(new Vector3(0, 1.65, 0)), g.facing, player, level);
+  const eye = g.position.clone().add(new Vector3(0, 1.65, 0));
+  const visible = seesPlayer(eye, g.facing, player, level);
   if (visible) {
     g.lastSeen = new Vector3(player.x, 0, player.z);
     g.lastHeard = null;
     g.investigation = [];
-    g.suspicion = Math.min(1, g.suspicion + dt / 1.2);
+    g.checking = null;
+    g.suspicion = Math.min(1, g.suspicion + dt / (context.wary ? WARY_DETECTION_TIME : DETECTION_TIME));
     if (g.suspicion >= 1) g.alerted = true;
     g.search = 4;
     g.mode = g.alerted ? 'alert' : 'suspicious';
     g.facing = Math.atan2(player.x - g.position.x, player.z - g.position.z);
+    // Armed guards radio confirmed contact; unarmed guards make the facility alarm call instead.
+    if (g.armed && g.alerted && !g.radioed) g.radio ??= { reason: 'contact', time: 0, position: g.lastSeen.clone(), victim: null };
+    if (g.radio?.reason === 'contact') g.radio.position.copy(g.lastSeen);
   } else { g.suspicion = Math.max(0, g.suspicion - dt * .25); }
+  // Once started, a call continues without sight; only immobilizing the caller stops it.
+  if (g.radio) g.radio.time += dt;
   let fired = false;
   if (g.armed) {
     g.alarm = 0;
@@ -231,6 +352,15 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   } else if (g.alerted && visible) g.alarm += dt;
   else g.alarm = Math.max(0, g.alarm - dt * 2);
   if (visible) return fired;
+  if (!g.checking && (g.mode === 'patrol' || g.mode === 'search')) {
+    // Sound investigations take priority, so an Echo Lure can pull a guard away before discovery.
+    const found = context.downed.find(d => !d.reported && seesPlayer(eye, g.facing, d.position.clone().setY(1.2), level));
+    if (found) {
+      g.checking = { kind: found.kind, index: found.index, position: found.position.clone() };
+      g.lastSeen = null; g.lastHeard = null; g.investigation = [];
+    }
+  }
+  if (g.checking) { checkColleague(g, dt, level, context); return false; }
   const investigationTarget = g.lastSeen ?? g.lastHeard;
   if (investigationTarget && g.search > 0) {
     if (g.investigation.length === 0 && g.mode !== 'search') g.investigation = pathTo(g.position, investigationTarget, level);
@@ -249,6 +379,7 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   g.lastSeen = null;
   g.lastHeard = null;
   g.alerted = false;
+  g.radioed = false;
   g.mode = 'patrol';
   if (g.investigation.length > 0) {
     if (moveToward(g, g.investigation[0], .85, dt)) g.investigation.shift();

@@ -30,9 +30,11 @@ test('the records wing has two usable approaches to the vault', () => {
     const legs = [pathTo(v(level.spawn), first, level), pathTo(first, second, level), pathTo(second, destination, level)];
     assert.ok(legs.every(route => route.length > 0), `${side < 0 ? 'left' : 'right'} approach connects`);
     assert.ok(legs.flat().every(point => safeFloor(point, level)), 'route avoids furniture and walls');
-    distances.push(legs.flat().length);
+    let at = v(level.spawn), length = 0;
+    for (const point of legs.flat()) { length += Math.hypot(point.x - at.x, point.z - at.z); at = point; }
+    distances.push(length);
   }
-  assert.ok(distances[1] > distances[0] + 10, 'the covered right route takes a real detour');
+  assert.ok(distances[1] > distances[0] + 5, 'the covered right route takes a real detour');
   assert.equal(clearSight(new Vector3(-5, 1.65, -6), new Vector3(-3.5, 1.55, -6), level), true, 'direct route is exposed');
   assert.equal(clearSight(new Vector3(7, 1.65, -5.5), new Vector3(3.5, 1.55, -5.5), level), false, 'service shelving provides cover');
 });

@@ -2,9 +2,19 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import Encounter, { HUD, initialHUD } from "./game/Encounter";
-import { PLAYER_MAX_HEALTH, SHOT_WINDUP } from "./game/mechanics";
+import { PLAYER_MAX_HEALTH, RADIO_CALL_TIME, SHOT_WINDUP, WARY_DURATION } from "./game/mechanics";
 import { ANNEX_LEVEL, DEMO_LEVEL, type Level } from "./game/levels";
 import "./game/game.css";
+
+/** The single awareness meter shows the most urgent threat, its countdown and fill. */
+function detectionMeter(hud: HUD) {
+  if (hud.alarm > 0) return { label: `ALARM CALL · ${Math.max(0, 3 - hud.alarm).toFixed(1)}s`, fill: hud.alarm / 3, color: "#e89380" };
+  if (hud.workerMode === "calling") return { label: `WORKER REPORT · ${Math.max(0, 4 - hud.workerReport).toFixed(1)}s`, fill: hud.workerReport / 4, color: "#e89380" };
+  if (hud.radioReason) return { label: `${hud.awareness} · ${(RADIO_CALL_TIME * (1 - hud.radio)).toFixed(1)}s`, fill: hud.radio, color: "#e0ae78" };
+  if (hud.workerMode === "fleeing" || hud.awareness.startsWith("INVESTIGATING")) return { label: hud.awareness, fill: 1, color: "#a7c7d0" };
+  if (hud.awareness === "SECURITY WARY") return { label: `SECURITY WARY · ${Math.ceil(hud.wary)}s`, fill: hud.wary / WARY_DURATION, color: "#71909b" };
+  return { label: hud.awareness, fill: hud.suspicion, color: "#d0c29c" };
+}
 
 export default function App() {
   const [hud, setHUD] = useState<HUD>(initialHUD);
@@ -93,25 +103,15 @@ export default function App() {
             {hud.message}
           </div>
           {hud.shotWindup > 0 && <div className="incoming">ARMED GUARD AIMING · {(SHOT_WINDUP - hud.shotWindup).toFixed(1)}s</div>}
-          {hud.awareness && (
-            <div className="detection">
-              <span>
-                {hud.alarm > 0
-                  ? `ALARM CALL · ${Math.max(0, 3 - hud.alarm).toFixed(1)}s`
-                  : hud.workerMode === 'calling'
-                    ? `WORKER REPORT · ${Math.max(0, 4 - hud.workerReport).toFixed(1)}s`
-                  : hud.awareness}
-              </span>
-              <div>
-                <i
-                  style={{
-                    width: `${(hud.alarm > 0 ? hud.alarm / 3 : hud.workerMode === 'calling' ? hud.workerReport / 4 : hud.workerMode === 'fleeing' || hud.awareness.startsWith('INVESTIGATING') ? 1 : hud.suspicion) * 100}%`,
-                    background: hud.alarm > 0 || hud.workerMode === 'calling' ? "#e89380" : hud.awareness.startsWith('INVESTIGATING') ? '#a7c7d0' : '#d0c29c',
-                  }}
-                />
+          {hud.awareness && (() => {
+            const meter = detectionMeter(hud);
+            return (
+              <div className="detection">
+                <span>{meter.label}</span>
+                <div><i style={{ width: `${meter.fill * 100}%`, background: meter.color }} /></div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </>
       )}
       <div className="bottom">

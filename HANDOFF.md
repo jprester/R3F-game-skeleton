@@ -39,6 +39,8 @@ Guards patrol authored routes. Their 120-degree view cone extends 10 m and requi
 
 Player footsteps can attract guards. Shift reduces the hearing radius; walls muffle it. Hearing alone does not confirm the player or start an alarm. Guards also make positional walking sounds, tuned to be audible across the small office without being overly loud. Their steps stop when stationary or immobilized. Audio is synthesized via Web Audio rather than external sound files.
 
+Guards coordinate over radio (`src/game/security.ts`). A guard who sees an immobilized colleague or worker walks to within 1.4 m and makes a **2 s** radio call. An armed guard who confirms contact radios the player's last position; the other guards who are not already engaged converge on it. Either completed call makes security **wary for 30 s**, cutting sight confirmation from 1.2 s to 0.8 s. Motor Lock or Seeker Crystal on the caller cancels the call. Their beacon blinks white and the left arm is raised while calling, which shows the player who to silence. Once started, a call continues after sight is lost. Each incapacitation is reported at most once, and a colleague who recovers before discovery is never reported. Sound investigations (footsteps, Echo Lure, gunfire) take priority over discovery, so a lure can pull a guard away from a body. Other guards hear gunfire within 14 m (reduced by walls) and investigate the shooter. Radio calls do not fail the mission; only the unarmed guards' alarm call does. Recovered victims do not report their own immobilization; that lever is reserved for a future permanent takedown (Restraint/Sleep).
+
 The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after that the worker runs to the level's alarm point and spends **4 s** reporting. Motor Lock or Seeker Crystal interrupts the report and freezes the worker. Once a previously alerted worker recovers, they resume trying to report. Echo Lure and footsteps do not distract the worker.
 
 ## Development history at a glance
@@ -52,6 +54,7 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 7. Armed selected guards, added telegraphed fire, three-segment player health, then shortened fire timing and added tracers at the user's request.
 8. Extracted level data from the original office and built the larger selectable Records Wing mission. The original office became the Quiet Entry demo.
 9. Moved a crate off the Records Wing extraction point; differentiated its two routes through geometry, guard roles, cover, signage, floor markings, and lighting.
+10. Added guard coordination: discovery of incapacitated colleagues/worker, radio calls (downed and contact) that Motor Lock can interrupt, a facility-wide wary state, and gunfire hearing. Also straightened NPC paths, made nearest-cell lookup direct, and pooled shot tracers so simultaneous shots each draw.
 
 ## Code map and important invariants
 
@@ -60,17 +63,18 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 | `src/App.tsx` | Top-level React app, level picker, briefing, HUD, pointer-lock/fallback flow, restart, shared audio context |
 | `src/game/Encounter.tsx` | Active game loop: input, player body and camera, spell targeting/casts, guard and worker updates, shot resolution, objective and failure handling, visual/audio effects |
 | `src/game/levels.ts` | **Active level source of truth:** solids, precomputed bounds, play area, spawn/core/extraction, guard routes and armed flags, worker/panel, lights, signs |
-| `src/game/mechanics.ts` | Guard AI, vision, hearing, navigation, Blink-safe floor checks, Seeker flight, gameplay constants. Most helpers take a `Level`; omitted level defaults to Quiet Entry for older tests/tools |
+| `src/game/mechanics.ts` | Per-guard AI (including colleague checks and radio progress), vision, hearing, navigation, Blink-safe floor checks, Seeker flight, gameplay constants. `lockGuard` is the single entry point for immobilizing a guard. Most helpers take a `Level`; omitted level defaults to Quiet Entry for older tests/tools |
+| `src/game/security.ts` | Guard-force coordination: advances all guards, resolves completed radio calls (converge on contact, wary state, mark victims reported) and gunfire hearing. `Encounter` calls `updateSecurity` once per frame |
 | `src/game/worker.ts` | Worker state machine and report behavior; also receives the selected level |
 | `src/game/Environment.tsx` | Renders `level.solids` as Rapier fixed colliders and meshes; also lights, signs, panel, extraction ring, route cues |
 | `src/game/GuardCharacter.tsx`, `WorkerCharacter.tsx` | Code-built NPC blockouts and animations; character rigid bodies carry identifiers used by Rapier targeting rays |
 | `src/game/GuardFootsteps.ts` | Synthesized positional guard walking audio |
 | `src/game/game.css` | HUD and briefing appearance |
-| `tests/*.test.mjs` | Mechanics, level connectivity, worker behavior, and selected real Rapier collision queries |
+| `tests/*.test.mjs` | Mechanics, level connectivity, worker behavior, guard coordination (`security.test.mjs`), and selected real Rapier collision queries |
 
-`src/level/` and much of `src/components/` are preserved from the earlier skeleton but are **not the current encounter implementation**. Start in `src/game/` and `src/App.tsx` for gameplay work. `src/main.tsx` mounts `App`.
+The unused chunk-based level system (`src/level/`), the original office components (`src/components/`) and `LEVEL_SYSTEM_SPEC.md` from the earlier skeleton were removed; they remain in git history before this change. All gameplay lives in `src/game/` and `src/App.tsx`. `src/main.tsx` mounts `App`.
 
-When editing a level, keep the visible and physical world aligned: add walls, doors, and cover to `level.solids`, because those solids drive rendering, Rapier colliders, line-of-sight bounds, Blink safety, and the 0.5 m navigation grid. Decorative-only features belong in `Environment.tsx`. Check guard route endpoints and the worker's route against the new geometry. The tests in `tests/levels.test.mjs` specifically check clear NPC starts, two reachable approaches, the longer right detour, cover occlusion, and the worker's ability to reach the alarm.
+When editing a level, keep the visible and physical world aligned: add walls, doors, and cover to `level.solids`, because those solids drive rendering, Rapier colliders, line-of-sight bounds, Blink safety, and the 0.5 m navigation grid. Decorative-only features belong in `Environment.tsx`. Check guard route endpoints and the worker's route against the new geometry. Routes from `pathTo` are smoothed: grid waypoints are dropped wherever a guard-sized body can walk straight, so tests should measure walked distance or segment crossings rather than waypoint counts. The tests in `tests/levels.test.mjs` specifically check clear NPC starts, two reachable approaches, the longer right detour, cover occlusion, and the worker's ability to reach the alarm.
 
 Rapier handles the player and NPC collision bodies. The first Rapier targeting ray hit prevents spells from selecting NPCs through a wall. Blink combines a static floor/clearance check with a Rapier capsule intersection query to reject occupied arrivals. The `Encounter` component receives a `level` prop; `App` remounts the `Physics` tree when switching levels or restarting, which resets the encounter state.
 
@@ -85,12 +89,12 @@ npm test
 npm run build
 ```
 
-Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **23 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
+Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **33 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
 
 ## Prototype limits and useful next work
 
 The Records Wing is a gameplay blockout, not finished art. Patrols, hearing, cooldowns, guard fire, and the two route choices still need end-to-end human playtesting and balance. The next useful pass is to play both routes through core retrieval **and extraction**, note where the player is confused or overwhelmed, then tune cover and patrol timing. Preserve the distinct risk profiles: fast/exposed/armed on the left, longer/covered/alarm risk on the right. Prefer improving readable decisions before adding another large map or more powers.
 
-Current guard gunfire is a sight-based hit event with a tracer effect, not a physical projectile simulation. There is one tracer visual ref in `Encounter`, so simultaneous shots from the two armed guards can overwrite each other's streak, although both shot events resolve. Guard and worker models are primitive meshes; there is no animation or Blender asset pipeline. There is no save system, inventory, recon wisp, guardian shard, defensive field, or sophisticated squad/cover AI yet. These are future possibilities, not missing parts of the current prototype.
+Current guard gunfire is a sight-based hit event with a tracer effect, not a physical projectile simulation. Radio and wary timings (2 s call, 30 s wary, 0.8 s wary detection) are first-pass values and need playtesting, particularly whether a contact call makes the Records Wing converge too hard. Guard and worker models are primitive meshes; there is no animation or Blender asset pipeline. There is no save system, inventory, recon wisp, guardian shard, defensive field, or squad/cover AI beyond the radio coordination above. These are future possibilities, not missing parts of the current prototype.
 
 For any continued work: make a small playable change, keep Quiet Entry working, update the active level data rather than the unused skeleton, run tests and build, and verify important visual or input changes in the game. Update this handoff when a major mechanic or architecture decision changes.

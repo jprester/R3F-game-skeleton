@@ -56,6 +56,6 @@ Tests require Node 22.6+ for TypeScript stripping. They cover level connectivity
 - `src/game/GuardFootsteps.ts`: synthesized positional guard footsteps.
 - `src/game/worker.ts` and `src/game/WorkerCharacter.tsx`: civilian behavior and blockout model.
 - `src/App.tsx` and `src/game/game.css`: briefing, HUD, pause and restart.
-- `src/level/` and the original `src/components/`: preserved office skeleton for future asset/level integration; the prototype currently uses its own compact, fully loaded encounter.
+- `src/game/security.ts`: guard coordination: colleague discovery, radio calls, wary state and gunfire hearing.
 
 This is a gameplay blockout. Guards have articulated movement, a firearm or alert radio gesture, a searching head turn, and a frozen pose while immobilized. They still use code-built meshes and grid navigation over the authored rooms. Gunfire is a simple line-of-sight prototype; the player has no firearm, and there are no skeletal animation assets yet. Future work should focus on playtesting patrol, hearing, combat and cooldown balance before expanding the map.

@@ -15,18 +15,21 @@ export interface Worker {
   witnessed: boolean;
   route: Vector3[];
   report: number;
+  /** This incapacitation has already been radioed in by security. */
+  reported: boolean;
   mode: 'working' | 'noticed' | 'fleeing' | 'calling' | 'locked';
 }
 
 export function createWorker(level: Level = DEMO_LEVEL): Worker {
   return {
     position: new Vector3(...level.worker.start), alarmPoint: new Vector3(...level.worker.alarm), facing: level.worker.facing,
-    suspicion: 0, locked: 0, witnessed: false, route: [], report: 0,
+    suspicion: 0, locked: 0, witnessed: false, route: [], report: 0, reported: false,
     mode: 'working',
   };
 }
 
 export function lockWorker(worker: Worker, duration: number) {
+  if (worker.locked <= 0) worker.reported = false;
   worker.locked = Math.max(worker.locked, duration);
   worker.report = 0;
   worker.mode = 'locked';

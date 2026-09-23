@@ -30,9 +30,11 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
     if (marker.current) marker.current.visible = guard.locked > 0;
     if (muzzle.current) muzzle.current.visible = guard.muzzleFlash > 0 && guard.locked <= 0;
     if (beacon.current) {
-      beacon.current.visible = guard.mode !== 'patrol';
+      // A radio call blinks the beacon so the player can see who to silence.
+      const radioBlink = guard.radio && Math.floor(guard.radio.time * 6) % 2 === 0;
+      beacon.current.visible = guard.mode !== 'patrol' || !!guard.radio;
       (beacon.current.material as MeshBasicMaterial).color.set(
-        guard.locked > 0 ? '#a7dbe5' : guard.mode === 'alert' ? '#ee806e' : '#d8c68c',
+        guard.locked > 0 ? '#a7dbe5' : radioBlink ? '#f1f4f5' : guard.mode === 'alert' ? '#ee806e' : '#d8c68c',
       );
     }
 
@@ -46,11 +48,12 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
     const alert = guard.mode === 'alert';
     const aiming = guard.armed && alert && guard.shotCooldown <= 0;
     const searching = guard.mode === 'search';
+    const radioing = !!guard.radio && !aiming;
     const blend = Math.min(1, delta * 12);
     if (leftLeg.current) leftLeg.current.rotation.x += (swing - leftLeg.current.rotation.x) * blend;
     if (rightLeg.current) rightLeg.current.rotation.x += (-swing - rightLeg.current.rotation.x) * blend;
     if (leftArm.current) leftArm.current.rotation.x +=
-      ((aiming ? -1.05 : alert ? -.55 : -swing * .55) - leftArm.current.rotation.x) * blend;
+      ((aiming ? -1.05 : radioing ? -2.55 : alert ? -.55 : -swing * .55) - leftArm.current.rotation.x) * blend;
     if (rightArm.current) rightArm.current.rotation.x +=
       ((aiming ? -1.15 : alert ? -1.25 : swing * .55) - rightArm.current.rotation.x) * blend;
     if (torso.current) torso.current.rotation.x +=

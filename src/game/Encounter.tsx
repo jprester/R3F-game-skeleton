@@ -6,7 +6,8 @@ import Environment from './Environment';
 import GuardCharacter from './GuardCharacter';
 import { GuardFootsteps } from './GuardFootsteps';
 import WorkerCharacter from './WorkerCharacter';
-import { advanceFootsteps, advanceSeeker, BLINK_COOLDOWN, BLINK_RANGE, canGuardHit, clearSight, createGuards, hearFootstep, hearLure, LOCK_COOLDOWN, LOCK_DURATION, LOCK_RANGE, LURE_COOLDOWN, LURE_RANGE, PLAYER_MAX_HEALTH, safeFloor, SEEKER_COOLDOWN, SEEKER_LOCK_DURATION, SEEKER_RANGE, updateGuard, type Guard, type SeekerFlight } from './mechanics';
+import { advanceFootsteps, advanceSeeker, BLINK_COOLDOWN, BLINK_RANGE, canGuardHit, clearSight, createGuards, hearFootstep, hearLure, LOCK_COOLDOWN, LOCK_DURATION, LOCK_RANGE, lockGuard, LURE_COOLDOWN, LURE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, safeFloor, SEEKER_COOLDOWN, SEEKER_LOCK_DURATION, SEEKER_RANGE, type Guard, type RadioCall, type SeekerFlight } from './mechanics';
+import { createSecurity, updateSecurity } from './security';
 import { createWorker, lockWorker, updateWorker, WORKER_CALL_DURATION, type Worker } from './worker';
 import type { Level } from './levels';
 
@@ -15,11 +16,16 @@ export interface HUD {
   failureReason: 'guard' | 'worker' | 'shot' | 'fall' | null;
   blink: number; motor: number; seeker: number; lure: number; seekerFlying: boolean; suspicion: number; alarm: number;
   health: number; shotWindup: number;
+  /** Progress (0–1) of the most advanced guard radio call, and what it reports. */
+  radio: number; radioReason: RadioCall['reason'] | null; wary: number;
   workerMode: Worker['mode']; workerReport: number;
   message: string; target: string; elapsed: number;
   awareness: string; pulse: { id: number; kind: 'blink' | 'motor' | 'seeker' | 'lure' | 'hit' } | null; muted: boolean;
 }
-export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, blink: 0, motor: 0, seeker: 0, lure: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false };
+export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, blink: 0, motor: 0, seeker: 0, lure: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, radio: 0, radioReason: null, wary: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false };
+
+/** Enough tracers for every armed guard in a level to fire in the same frame. */
+const TRACER_POOL = 4;
 
 export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { onHUD: (hud: HUD) => void; dragLook: boolean; onPause: () => void; audio: RefObject<AudioContext | null>; level: Level }) {
   const player = useRef<RapierRigidBody>(null);
@@ -28,14 +34,16 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
   const lureEffect = useRef<Mesh>(null);
   const lureEffectTime = useRef(0);
   const lockBeam = useRef<Mesh>(null);
-  const shotTracer = useRef<Group>(null);
+  const shotTracers = useRef<(Group | null)[]>([]);
   const seekerMesh = useRef<Group>(null);
   const seekerFlight = useRef<SeekerFlight | null>(null);
   const lockEffect = useRef({ time: 0, from: new Vector3(), to: new Vector3() });
-  const tracerEffect = useRef({ time: 0, from: new Vector3(), to: new Vector3() });
+  const tracerEffects = useRef(Array.from({ length: TRACER_POOL }, () => ({ time: 0, from: new Vector3(), to: new Vector3() })));
   const artifactMesh = useRef<Mesh>(null);
   const guards = useRef(createGuards(level));
   const worker = useRef(createWorker(level));
+  const security = useRef(createSecurity());
+  const radioActive = useRef(guards.current.map(() => false));
   const previousModes = useRef(guards.current.map(g => g.mode));
   const previousWorkerMode = useRef(worker.current.mode);
   const lastGuardPositions = useRef(guards.current.map(g => g.position.clone()));
@@ -52,7 +60,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
   const unlockAudio = () => {
     if (audio.current?.state === 'suspended') void audio.current.resume();
   };
-  const cue = (kind: 'notice' | 'alert' | 'motor' | 'blink' | 'core' | 'seeker' | 'panic' | 'report' | 'aim') => {
+  const cue = (kind: 'notice' | 'alert' | 'motor' | 'blink' | 'core' | 'seeker' | 'panic' | 'report' | 'aim' | 'radio' | 'radioDone') => {
     const context = audio.current;
     if (!context || context.state !== 'running' || game.current.muted) return;
     const now = context.currentTime;
@@ -61,11 +69,12 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       motor: [560, 230, .22, .055], blink: [155, 410, .24, .06],
       core: [330, 660, .42, .035], seeker: [720, 340, .3, .04],
       panic: [480, 760, .3, .04], report: [680, 520, .35, .05], aim: [350, 490, .21, .035],
+      radio: [1250, 1180, .12, .018], radioDone: [900, 620, .26, .03],
     }[kind];
     const [start, end, duration, volume] = settings;
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    oscillator.type = kind === 'alert' ? 'sawtooth' : 'sine';
+    oscillator.type = kind === 'alert' ? 'sawtooth' : kind.startsWith('radio') ? 'square' : 'sine';
     oscillator.frequency.setValueAtTime(start, now);
     oscillator.frequency.exponentialRampToValueAtTime(end, now + duration);
     gain.gain.setValueAtTime(.0001, now);
@@ -185,10 +194,11 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         (lockBeam.current.material as MeshBasicMaterial).opacity = effect.time / .22 * .5;
       }
     }
-    if (shotTracer.current) {
-      const effect = tracerEffect.current;
+    tracerEffects.current.forEach((effect, index) => {
+      const tracer = shotTracers.current[index];
+      if (!tracer) return;
       effect.time = Math.max(0, effect.time - dt);
-      shotTracer.current.visible = effect.time > 0;
+      tracer.visible = effect.time > 0;
       if (effect.time > 0) {
         const delta = effect.to.clone().sub(effect.from);
         const distance = delta.length();
@@ -196,11 +206,11 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         const head = Math.min(distance, distance * progress);
         const tail = Math.max(0, head - 1.5);
         const length = Math.max(.04, head - tail);
-        shotTracer.current.position.copy(effect.from).addScaledVector(delta, (head + tail) / (2 * distance));
-        shotTracer.current.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), delta.normalize());
-        shotTracer.current.scale.y = length;
+        tracer.position.copy(effect.from).addScaledVector(delta, (head + tail) / (2 * distance));
+        tracer.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), delta.normalize());
+        tracer.scale.y = length;
       }
-    }
+    });
     if (lureEffect.current) {
       if (active) lureEffectTime.current = Math.max(0, lureEffectTime.current - dt);
       lureEffect.current.visible = lureEffectTime.current > 0;
@@ -222,11 +232,20 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       playerStepDistance.current = footfalls.distanceSinceStep;
       body.setLinvel({ x: movement.x, y: state.jump && ground ? 5 : body.linvel().y, z: movement.z }, true);
       state.jump = false;
+      if (footfalls.count > 0) {
+        for (const guard of guards.current) hearFootstep(guard, new Vector3(position.x, 0, position.z), state.keys.has('ShiftLeft'), level);
+      }
+      const beforeWindups = guards.current.map(guard => guard.shotWindup);
+      const events = updateSecurity(guards.current, worker.current, camera.position, dt, level, security.current);
+      shots.push(...events.shots);
+      for (const report of events.reports) {
+        cue('radioDone');
+        say(report.reason === 'contact' ? 'Contact radioed · security converging on your position' : 'Incapacitation reported · security is wary');
+      }
       guards.current.forEach((guard, index) => {
-        if (footfalls.count > 0) hearFootstep(guard, new Vector3(position.x, 0, position.z), state.keys.has('ShiftLeft'), level);
-        const beforeWindup = guard.shotWindup;
-        if (updateGuard(guard, camera.position, dt, level)) shots.push(guard);
-        if (guard.armed && guard.shotWindup > 0 && beforeWindup === 0) cue('aim');
+        if (guard.armed && guard.shotWindup > 0 && beforeWindups[index] === 0) cue('aim');
+        if (guard.radio && !radioActive.current[index]) cue('radio');
+        radioActive.current[index] = !!guard.radio;
         const distanceMoved = lastGuardPositions.current[index].distanceTo(guard.position);
         lastGuardPositions.current[index].copy(guard.position);
         const step = advanceFootsteps(stepDistances.current[index], distanceMoved);
@@ -238,7 +257,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         }
         const before = previousModes.current[index];
         if (guard.mode === 'suspicious' && before === 'patrol') cue('notice');
-        if (guard.mode === 'investigate' && before === 'patrol') cue('notice');
+        if ((guard.mode === 'investigate' || guard.mode === 'check') && before === 'patrol') cue('notice');
         if (guard.mode === 'alert' && before !== 'alert') cue('alert');
         previousModes.current[index] = guard.mode;
       });
@@ -256,12 +275,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
           g.seekerFlying = false;
           if (result === 'hit') {
             if (flight.targetKind === 'worker') lockWorker(worker.current, SEEKER_LOCK_DURATION);
-            else {
-              const targetGuard = guards.current[flight.targetIndex];
-              targetGuard.locked = Math.max(targetGuard.locked, SEEKER_LOCK_DURATION);
-              targetGuard.alerted = true; targetGuard.suspicion = 1;
-              targetGuard.alarm = 0; targetGuard.mode = 'locked';
-            }
+            else lockGuard(guards.current[flight.targetIndex], SEEKER_LOCK_DURATION);
             cue('motor'); say('Crystal impact · target held for 10 seconds');
           } else say('Seeker Crystal lost its route.');
         }
@@ -304,9 +318,8 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       else {
         if (targetWorker) lockWorker(targetWorker, LOCK_DURATION);
         else if (targetGuard) {
-          targetGuard.locked = LOCK_DURATION; targetGuard.alerted = true; targetGuard.suspicion = 1;
-          targetGuard.lastSeen = new Vector3(position.x, 0, position.z); targetGuard.search = 4;
-          targetGuard.alarm = 0; targetGuard.shotWindup = 0; targetGuard.muzzleFlash = 0; targetGuard.mode = 'locked';
+          if (targetGuard.radio) say('Radio call cut off.');
+          lockGuard(targetGuard, LOCK_DURATION, new Vector3(position.x, 0, position.z));
         }
         g.motor = LOCK_COOLDOWN;
         lockEffect.current = { time: .22, from: camera.position.clone(), to: target.position.clone().add(new Vector3(0, 1.15, 0)) };
@@ -356,13 +369,14 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     }
     for (const shooter of shots) {
       cueShot(shooter.position);
-      tracerEffect.current.from.copy(shooter.position).add(new Vector3(
+      const tracer = tracerEffects.current.reduce((oldest, effect) => effect.time < oldest.time ? effect : oldest);
+      tracer.from.copy(shooter.position).add(new Vector3(
         Math.cos(shooter.facing) * .37 + Math.sin(shooter.facing) * .93,
         1.7,
         -Math.sin(shooter.facing) * .37 + Math.cos(shooter.facing) * .93,
       ));
-      tracerEffect.current.to.copy(camera.position).add(new Vector3(0, -.28, 0));
-      tracerEffect.current.time = .18;
+      tracer.to.copy(camera.position).add(new Vector3(0, -.28, 0));
+      tracer.time = .18;
       const finalPosition = body.translation();
       const finalEye = new Vector3(finalPosition.x, finalPosition.y + .65, finalPosition.z);
       if (g.status === 'playing' && canGuardHit(shooter, finalEye, level)) {
@@ -385,16 +399,23 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     g.suspicion = Math.max(worker.current.suspicion, ...guards.current.map(v => v.suspicion));
     g.alarm = Math.max(...guards.current.map(v => v.alarm));
     g.shotWindup = Math.max(...guards.current.map(v => v.shotWindup));
+    const call = guards.current.reduce<RadioCall | null>((best, v) => v.radio && (!best || v.radio.time > best.time) ? v.radio : best, null);
+    g.radio = call ? Math.min(1, call.time / RADIO_CALL_TIME) : 0;
+    g.radioReason = call?.reason ?? null;
+    g.wary = security.current.wary;
     g.workerMode = worker.current.mode;
     g.workerReport = worker.current.report;
     g.awareness = g.alarm > 0 ? 'ALARM CALL' :
       worker.current.mode === 'calling' ? 'WORKER REPORT' :
+      call ? (call.reason === 'contact' ? 'RADIO · CONTACT REPORT' : 'RADIO · COLLEAGUE DOWN') :
       worker.current.mode === 'fleeing' ? 'WORKER RUNNING TO ALARM' :
       guards.current.some(v => v.mode === 'alert') ? 'CONTACT CONFIRMED' :
+      guards.current.some(v => v.mode === 'check') ? 'GUARD CHECKING A COLLEAGUE' :
       guards.current.some(v => (v.mode === 'investigate' || v.mode === 'search') && v.lastSeen) ? 'INVESTIGATING LAST CONTACT' :
       guards.current.some(v => (v.mode === 'investigate' || v.mode === 'search') && v.lastHeard) ? 'INVESTIGATING A SOUND' :
       guards.current.some(v => v.mode === 'suspicious') ? 'SECURITY ATTENTION' :
-      worker.current.mode === 'noticed' ? 'WORKER NOTICED MOVEMENT' : '';
+      worker.current.mode === 'noticed' ? 'WORKER NOTICED MOVEMENT' :
+      security.current.wary > 0 ? 'SECURITY WARY' : '';
     if (g.alarm >= 3 && g.status === 'playing') { g.status = 'failed'; g.failureReason = 'guard'; }
     if (g.workerReport >= WORKER_CALL_DURATION && g.status === 'playing') { g.status = 'failed'; g.failureReason = 'worker'; say('The office worker reported the intrusion.'); }
     if (g.status !== 'playing' && dragLook) onPause();
@@ -414,10 +435,10 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     <mesh ref={lurePreview} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.46, .5, 40]} /><meshBasicMaterial color="#d9ba83" transparent opacity={.75} depthWrite={false} /></mesh>
     <mesh ref={lureEffect} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.33, .37, 40]} /><meshBasicMaterial color="#e8c993" transparent opacity={0} depthWrite={false} /></mesh>
     <mesh ref={lockBeam} visible={false}><cylinderGeometry args={[.012, .012, 1, 6]} /><meshBasicMaterial color="#c2dbe1" transparent opacity={0} depthWrite={false} /></mesh>
-    <group ref={shotTracer} visible={false}>
+    {tracerEffects.current.map((_, index) => <group key={index} ref={node => { shotTracers.current[index] = node; }} visible={false}>
       <mesh><cylinderGeometry args={[.025, .025, 1, 6]} /><meshBasicMaterial color="#ffd797" toneMapped={false} depthWrite={false} /></mesh>
       <mesh><cylinderGeometry args={[.075, .075, 1, 8]} /><meshBasicMaterial color="#f6a54f" transparent opacity={.23} toneMapped={false} depthWrite={false} /></mesh>
-    </group>
+    </group>)}
     <group ref={seekerMesh} visible={false}>
       <mesh castShadow><octahedronGeometry args={[.16]} /><meshStandardMaterial color="#16232c" metalness={.7} roughness={.16} emissive="#668b99" emissiveIntensity={.7} /></mesh>
       <mesh scale={1.25}><octahedronGeometry args={[.16]} /><meshBasicMaterial color="#c5e5ed" wireframe transparent opacity={.7} depthWrite={false} /></mesh>
