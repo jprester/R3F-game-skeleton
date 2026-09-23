@@ -15,6 +15,11 @@ h1 { font-size: 25px; letter-spacing: -.03em; font-weight: 450; margin: 7px 0; }
 .detection { position: absolute; top: 23%; left: 50%; transform: translateX(-50%); width: 220px; text-align: center; font-size: 10px; letter-spacing: .15em; }
 .detection > div { height: 3px; background: #16202c; margin-top: 10px; }
 .detection i { height: 100%; display: block; transition: width .08s; }
+.spell-pulse { position: absolute; inset: 0; pointer-events: none; opacity: 0; animation: spell-pulse .32s ease-out; }
+.spell-pulse.blink { background: radial-gradient(circle at center, transparent 26%, #b6dce033 75%, #b6dce055); }
+.spell-pulse.motor { background: radial-gradient(circle at center, #d3e7eb22, transparent 25%); }
+.spell-pulse.seeker { background: radial-gradient(circle at center, #c8eaf022, transparent 38%); }
+@keyframes spell-pulse { 0% { opacity: 0; } 28% { opacity: 1; } 100% { opacity: 0; } }
 .bottom { position: absolute; bottom: 24px; left: 36px; right: 36px; pointer-events: none; }
 .abilities { display: flex; gap: 12px; }
 .abilities > div { background: #14222be6; border: 1px solid #91acba30; padding: 14px 16px; display: flex; align-items: center; gap: 13px; min-width: 220px; }
@@ -33,4 +38,4 @@ button:hover { background: #e2eef0; }
 button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
 button.secondary { margin-top: 8px; background: transparent; color: #b5c4cf; border: 1px solid #9ab8c430; }
 .prototype { display: block; font-size: 8px; letter-spacing: .17em; color: #7f9aa9; margin-top: 20px; }
-@media (max-width: 600px) { .topbar { inset: 20px 20px auto; } .tag { display: none; } .mission { left: 20px; } .bottom { left: 20px; right: 20px; } .abilities > div { min-width: 0; flex: 1; gap: 8px; padding: 10px; } .briefing { padding: 24px; } }
+@media (max-width: 760px) { .topbar { inset: 20px 20px auto; } .tag { display: none; } .mission { left: 20px; } .bottom { left: 20px; right: 20px; } .abilities > div { min-width: 0; flex: 1; flex-wrap: wrap; gap: 8px; padding: 10px; } .abilities span { width: 100%; margin-left: 0; } .briefing { padding: 24px; } }

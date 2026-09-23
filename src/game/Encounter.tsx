@@ -1,71 +1,85 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { CapsuleCollider, RapierRigidBody, RigidBody, useRapier } from '@react-three/rapier';
-import { Group, Mesh, Vector3 } from 'three';
+import { Group, Mesh, MeshBasicMaterial, Quaternion, Vector3 } from 'three';
 import Environment from './Environment';
-import { ARTIFACT, BLINK_COOLDOWN, BLINK_RANGE, clearSight, createGuards, EXTRACTION, Guard, LOCK_COOLDOWN, LOCK_DURATION, LOCK_RANGE, safeFloor, SPAWN, updateGuard } from './mechanics';
+import GuardCharacter from './GuardCharacter';
+import { GuardFootsteps } from './GuardFootsteps';
+import { advanceFootsteps, advanceSeeker, ARTIFACT, BLINK_COOLDOWN, BLINK_RANGE, clearSight, createGuards, EXTRACTION, LOCK_COOLDOWN, LOCK_DURATION, LOCK_RANGE, safeFloor, SEEKER_COOLDOWN, SEEKER_LOCK_DURATION, SEEKER_RANGE, SPAWN, updateGuard, type SeekerFlight } from './mechanics';
 
 export interface HUD {
   locked: boolean; status: 'playing' | 'success' | 'failed'; carrying: boolean;
-  blink: number; motor: number; suspicion: number; alarm: number;
+  blink: number; motor: number; seeker: number; seekerFlying: boolean; suspicion: number; alarm: number;
   message: string; target: string; elapsed: number;
+  awareness: string; pulse: { id: number; kind: 'blink' | 'motor' | 'seeker' } | null; muted: boolean;
 }
-export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, blink: 0, motor: 0, suspicion: 0, alarm: 0, message: '', target: '', elapsed: 0 };
+export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, blink: 0, motor: 0, seeker: 0, seekerFlying: false, suspicion: 0, alarm: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false };
 
-function GuardModel({ guard, index }: { guard: Guard; index: number }) {
-  const body = useRef<RapierRigidBody>(null);
-  const model = useRef<Group>(null);
-  const marker = useRef<Mesh>(null);
-  useFrame(() => {
-    body.current?.setNextKinematicTranslation({ x: guard.position.x, y: .9, z: guard.position.z });
-    if (model.current) model.current.rotation.y = guard.facing;
-    if (marker.current) marker.current.visible = guard.locked > 0;
-  });
-  return <RigidBody ref={body} type="kinematicPosition" position={[guard.position.x, .9, guard.position.z]} colliders={false} userData={{ guard: index }} name={`guard-${index}`}>
-    <CapsuleCollider args={[.55, .28]} />
-    <group ref={model} position={[0, -.9, 0]}>
-      <mesh position={[0, 1.1, 0]} castShadow><boxGeometry args={[.52, .68, .3]} /><meshStandardMaterial color="#263544" /></mesh>
-      <mesh position={[0, 1.66, 0]} castShadow><sphereGeometry args={[.19, 16, 12]} /><meshStandardMaterial color="#a69788" /></mesh>
-      <mesh position={[0, 1.69, .16]}><boxGeometry args={[.3, .07, .08]} /><meshStandardMaterial color="#121d28" /></mesh>
-      {[-1, 1].map(side => <group key={side}>
-        <mesh position={[side * .14, .4, 0]} castShadow><boxGeometry args={[.2, .8, .23]} /><meshStandardMaterial color="#202c37" /></mesh>
-        <mesh position={[side * .34, 1.04, .06]} castShadow><boxGeometry args={[.15, .55, .18]} /><meshStandardMaterial color="#263544" /></mesh>
-      </group>)}
-      <mesh position={[.18, 1.13, .3]}><boxGeometry args={[.1, .12, .5]} /><meshStandardMaterial color="#111820" /></mesh>
-      <mesh ref={marker} position={[0, 1.08, 0]}><boxGeometry args={[.8, 1.65, .65]} /><meshBasicMaterial color="#b1dcea" wireframe transparent opacity={.45} /></mesh>
-    </group>
-  </RigidBody>;
-}
-
-export default function Encounter({ onHUD, dragLook, onPause }: { onHUD: (hud: HUD) => void; dragLook: boolean; onPause: () => void }) {
+export default function Encounter({ onHUD, dragLook, onPause, audio }: { onHUD: (hud: HUD) => void; dragLook: boolean; onPause: () => void; audio: RefObject<AudioContext | null> }) {
   const player = useRef<RapierRigidBody>(null);
   const preview = useRef<Mesh>(null);
+  const lockBeam = useRef<Mesh>(null);
+  const seekerMesh = useRef<Group>(null);
+  const seekerFlight = useRef<SeekerFlight | null>(null);
+  const lockEffect = useRef({ time: 0, from: new Vector3(), to: new Vector3() });
   const artifactMesh = useRef<Mesh>(null);
   const guards = useRef(createGuards());
-  const input = useRef({ keys: new Set<string>(), yaw: 0, pitch: 0, locked: false, motor: false, blink: false, interact: false, jump: false });
+  const previousModes = useRef(guards.current.map(g => g.mode));
+  const lastGuardPositions = useRef(guards.current.map(g => g.position.clone()));
+  const stepDistances = useRef(guards.current.map(() => 0));
+  const footstepAudio = useRef<GuardFootsteps | null>(null);
+  const input = useRef({ keys: new Set<string>(), yaw: 0, pitch: 0, locked: false, motor: false, seeker: false, blink: false, interact: false, jump: false });
   const game = useRef({ ...initialHUD, messageTime: 0, publish: 0 });
   const { camera, gl } = useThree();
   const { world, rapier } = useRapier();
   const say = (message: string) => { game.current.message = message; game.current.messageTime = 2.5; };
+  const unlockAudio = () => {
+    if (audio.current?.state === 'suspended') void audio.current.resume();
+  };
+  const cue = (kind: 'notice' | 'alert' | 'motor' | 'blink' | 'core' | 'seeker') => {
+    const context = audio.current;
+    if (!context || context.state !== 'running' || game.current.muted) return;
+    const now = context.currentTime;
+    const settings = {
+      notice: [390, 495, .16, .025], alert: [280, 185, .32, .045],
+      motor: [560, 230, .22, .055], blink: [155, 410, .24, .06],
+      core: [330, 660, .42, .035], seeker: [720, 340, .3, .04],
+    }[kind];
+    const [start, end, duration, volume] = settings;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = kind === 'alert' ? 'sawtooth' : 'sine';
+    oscillator.frequency.setValueAtTime(start, now);
+    oscillator.frequency.exponentialRampToValueAtTime(end, now + duration);
+    gain.gain.setValueAtTime(.0001, now);
+    gain.gain.exponentialRampToValueAtTime(volume, now + .025);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + duration);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(now); oscillator.stop(now + duration + .02);
+  };
+  useEffect(() => () => footstepAudio.current?.dispose(), []);
 
   useEffect(() => {
     const state = input.current;
-    const lock = () => { state.locked = document.pointerLockElement === gl.domElement; if (!state.locked) { state.keys.clear(); state.motor = state.blink = state.interact = state.jump = false; } };
+    const lock = () => { state.locked = document.pointerLockElement === gl.domElement; if (!state.locked) { state.keys.clear(); state.motor = state.seeker = state.blink = state.interact = state.jump = false; } };
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Escape') { onPause(); return; }
       if (!state.locked && !dragLook) return;
-      if (['Space', 'KeyQ', 'KeyE', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
+      unlockAudio();
+      if (['Space', 'KeyQ', 'KeyE', 'KeyF', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
       state.keys.add(e.code);
       if (e.repeat) return;
+      if (e.code === 'KeyM') game.current.muted = !game.current.muted;
       if (e.code === 'KeyQ') state.blink = true;
+      if (e.code === 'KeyF') state.seeker = true;
       if (e.code === 'KeyE') state.interact = true;
       if (e.code === 'Space') state.jump = true;
     };
     const up = (e: KeyboardEvent) => state.keys.delete(e.code);
     const move = (e: MouseEvent) => { if (state.locked || (dragLook && e.buttons === 2)) { state.yaw -= e.movementX * .002; state.pitch = Math.max(-1.45, Math.min(1.45, state.pitch - e.movementY * .002)); } };
-    const mouse = (e: MouseEvent) => { if ((state.locked || dragLook) && e.button === 0) state.motor = true; };
+    const mouse = (e: MouseEvent) => { if ((state.locked || dragLook) && e.button === 0) { unlockAudio(); state.motor = true; } };
     const context = (e: MouseEvent) => e.preventDefault();
-    const blur = () => { onPause(); state.keys.clear(); state.motor = state.blink = state.interact = state.jump = false; if (document.pointerLockElement) document.exitPointerLock(); };
+    const blur = () => { onPause(); state.keys.clear(); state.motor = state.seeker = state.blink = state.interact = state.jump = false; if (document.pointerLockElement) document.exitPointerLock(); };
     document.addEventListener('pointerlockchange', lock);
     window.addEventListener('keydown', down); window.addEventListener('keyup', up);
     window.addEventListener('mousemove', move); gl.domElement.addEventListener('mousedown', mouse);
@@ -88,25 +102,71 @@ export default function Encounter({ onHUD, dragLook, onPause }: { onHUD: (hud: H
     camera.rotation.set(state.pitch, state.yaw, 0, 'YXZ');
     const direction = camera.getWorldDirection(new Vector3());
     const active = (state.locked || dragLook) && g.status === 'playing';
+    if (active && audio.current && !footstepAudio.current) {
+      footstepAudio.current = new GuardFootsteps(audio.current, guards.current.length);
+    }
+    if (active) footstepAudio.current?.updateListener(camera.position, direction);
+    if (lockBeam.current) {
+      const effect = lockEffect.current;
+      effect.time = Math.max(0, effect.time - dt);
+      lockBeam.current.visible = effect.time > 0;
+      if (effect.time > 0) {
+        const delta = effect.to.clone().sub(effect.from);
+        lockBeam.current.position.copy(effect.from).addScaledVector(delta, .5);
+        lockBeam.current.quaternion.copy(new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), delta.clone().normalize()));
+        lockBeam.current.scale.y = delta.length();
+        (lockBeam.current.material as MeshBasicMaterial).opacity = effect.time / .22 * .5;
+      }
+    }
     g.locked = (state.locked || dragLook) && g.status === 'playing';
     if (active) {
-      g.elapsed += dt; g.blink = Math.max(0, g.blink - dt); g.motor = Math.max(0, g.motor - dt);
+      g.elapsed += dt; g.blink = Math.max(0, g.blink - dt); g.motor = Math.max(0, g.motor - dt); g.seeker = Math.max(0, g.seeker - dt);
       g.messageTime -= dt; if (g.messageTime <= 0) g.message = '';
       const movement = new Vector3(Number(state.keys.has('KeyD')) - Number(state.keys.has('KeyA')), 0, Number(state.keys.has('KeyS')) - Number(state.keys.has('KeyW')));
       movement.normalize().applyAxisAngle(new Vector3(0, 1, 0), state.yaw).multiplyScalar(state.keys.has('ShiftLeft') ? 2 : 3.6);
       const ground = world.castRay(new rapier.Ray(position, { x: 0, y: -1, z: 0 }), .97, true, undefined, undefined, undefined, body);
       body.setLinvel({ x: movement.x, y: state.jump && ground ? 5 : body.linvel().y, z: movement.z }, true);
       state.jump = false;
-      guards.current.forEach(guard => updateGuard(guard, camera.position, dt));
+      guards.current.forEach((guard, index) => {
+        updateGuard(guard, camera.position, dt);
+        const distanceMoved = lastGuardPositions.current[index].distanceTo(guard.position);
+        lastGuardPositions.current[index].copy(guard.position);
+        const step = advanceFootsteps(stepDistances.current[index], distanceMoved);
+        stepDistances.current[index] = step.distanceSinceStep;
+        if (!g.muted && step.count > 0 && footstepAudio.current) {
+          const soundPosition = guard.position.clone().add(new Vector3(0, 1.2, 0));
+          const throughWall = !clearSight(camera.position, soundPosition);
+          for (let i = 0; i < step.count; i++) footstepAudio.current.play(index, guard.position, throughWall);
+        }
+        const before = previousModes.current[index];
+        if (guard.mode === 'suspicious' && before === 'patrol') cue('notice');
+        if (guard.mode === 'alert' && before !== 'alert') cue('alert');
+        previousModes.current[index] = guard.mode;
+      });
+      if (seekerFlight.current) {
+        const flight = seekerFlight.current;
+        const targetGuard = guards.current[flight.targetIndex];
+        const result = advanceSeeker(flight, targetGuard.position, dt);
+        if (result !== 'flying') {
+          seekerFlight.current = null;
+          g.seekerFlying = false;
+          if (result === 'hit') {
+            targetGuard.locked = Math.max(targetGuard.locked, SEEKER_LOCK_DURATION);
+            targetGuard.alerted = true; targetGuard.suspicion = 1;
+            targetGuard.alarm = 0; targetGuard.mode = 'locked';
+            cue('motor'); say('Crystal impact · target held for 10 seconds');
+          } else say('Seeker Crystal lost its route.');
+        }
+      }
       if (position.y < -4) { g.status = 'failed'; say('Arrival lost. Restart the operation.'); }
     } else body.setLinvel({ x: 0, y: body.linvel().y, z: 0 }, true);
 
     // First physical hit determines both spell targeting and the Blink surface.
-    const hit = world.castRay(new rapier.Ray(camera.position, direction), LOCK_RANGE, true, undefined, undefined, undefined, body);
+    const hit = world.castRay(new rapier.Ray(camera.position, direction), SEEKER_RANGE, true, undefined, undefined, undefined, body);
     const targetIndex = hit ? guards.current.findIndex((_, i) => hit.collider.parent()?.userData && (hit.collider.parent()?.userData as { guard?: number }).guard === i) : -1;
     // Guard bodies carry stable IDs; rays cannot select guards through walls.
     const target = targetIndex >= 0 ? guards.current[targetIndex] : undefined;
-    g.target = target ? (target.locked > 0 ? `Motor locked · ${target.locked.toFixed(1)}s` : 'LMB · Motor Lock') : '';
+    g.target = target ? (target.locked > 0 ? `Immobilized · ${target.locked.toFixed(1)}s` : `${hit!.timeOfImpact <= LOCK_RANGE ? 'LMB · Motor Lock  /  ' : ''}F · Seeker Crystal`) : '';
     let destination: Vector3 | null = null;
     if (hit && direction.y < -.04 && hit.timeOfImpact <= BLINK_RANGE) {
       const point = camera.position.clone().addScaledVector(direction, hit.timeOfImpact);
@@ -119,28 +179,60 @@ export default function Encounter({ onHUD, dragLook, onPause }: { onHUD: (hud: H
     if (preview.current) { preview.current.visible = active && !!destination && g.blink <= 0; if (destination) preview.current.position.set(destination.x, .025, destination.z); }
     if (active && state.motor) {
       if (g.motor > 0) say('Motor Lock recharging.');
-      else if (!target) say('Aim at a guard within 10 m. Clear line of sight required.');
+      else if (!target || hit!.timeOfImpact > LOCK_RANGE) say('Aim at a guard within 10 m. Clear line of sight required.');
       else if (target.locked > 0) say('Target already immobilized.');
-      else { target.locked = LOCK_DURATION; target.alerted = true; target.suspicion = 1; target.lastSeen = new Vector3(position.x, 0, position.z); target.search = 4; target.alarm = 0; g.motor = LOCK_COOLDOWN; say('Motor control suppressed · 6 seconds'); }
+      else {
+        target.locked = LOCK_DURATION; target.alerted = true; target.suspicion = 1;
+        target.lastSeen = new Vector3(position.x, 0, position.z); target.search = 4;
+        target.alarm = 0; target.mode = 'locked'; g.motor = LOCK_COOLDOWN;
+        lockEffect.current = { time: .22, from: camera.position.clone(), to: target.position.clone().add(new Vector3(0, 1.15, 0)) };
+        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'motor' };
+        cue('motor');
+        say('Motor control suppressed · 6 seconds');
+      }
+    }
+    if (active && state.seeker) {
+      if (g.seeker > 0) say('Seeker Crystal recharging.');
+      else if (seekerFlight.current) say('Seeker Crystal already in flight.');
+      else if (!target) say('Aim at a visible guard within 14 m.');
+      else if (target.locked > 0) say('Target already immobilized.');
+      else {
+        seekerFlight.current = { position: new Vector3(camera.position.x, 1.25, camera.position.z), targetIndex, route: [], replan: 0, life: 8 };
+        g.seeker = SEEKER_COOLDOWN; g.seekerFlying = true;
+        g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'seeker' };
+        cue('seeker'); say('Seeker Crystal tracking target.');
+      }
     }
     if (active && state.blink) {
       if (g.blink > 0) say('Blink recharging.');
       else if (!destination) say('Aim at clear floor within 7 m. Arrival must be unobstructed.');
-      else { body.setTranslation({ x: destination.x, y: .92, z: destination.z }, true); body.setLinvel({ x: 0, y: 0, z: 0 }, true); g.blink = BLINK_COOLDOWN; say('Translation verified.'); }
+      else { body.setTranslation({ x: destination.x, y: .92, z: destination.z }, true); body.setLinvel({ x: 0, y: 0, z: 0 }, true); g.blink = BLINK_COOLDOWN; g.pulse = { id: g.pulse ? g.pulse.id + 1 : 1, kind: 'blink' }; cue('blink'); say('Translation verified.'); }
     }
     const nearArtifact = camera.position.distanceTo(ARTIFACT) < 2.3 && clearSight(camera.position, ARTIFACT);
     const atExit = Math.hypot(position.x - EXTRACTION.x, position.z - EXTRACTION.z) < 1.4;
     if (nearArtifact && !g.carrying) g.target = 'E · Recover transit core';
     else if (atExit && g.carrying) g.target = 'E · Extract with transit core';
     if (active && state.interact) {
-      if (nearArtifact && !g.carrying) { g.carrying = true; say('Core secured. Return to the insertion point.'); }
+      if (nearArtifact && !g.carrying) { g.carrying = true; cue('core'); say('Core secured. Return to the insertion point.'); }
       else if (atExit && g.carrying) g.status = 'success';
       else say(g.carrying ? 'Return to the marked extraction circle.' : 'Find the transit core in Research.');
     }
-    state.motor = state.blink = state.interact = false;
+    state.motor = state.seeker = state.blink = state.interact = false;
+    if (seekerMesh.current) {
+      seekerMesh.current.visible = !!seekerFlight.current;
+      if (seekerFlight.current) {
+        seekerMesh.current.position.copy(seekerFlight.current.position);
+        seekerMesh.current.rotation.y += dt * 6;
+        seekerMesh.current.rotation.z += dt * 3;
+      }
+    }
     if (artifactMesh.current) { artifactMesh.current.visible = !g.carrying; if (active) artifactMesh.current.rotation.y += dt * .5; }
     g.suspicion = Math.max(...guards.current.map(v => v.suspicion));
     g.alarm = Math.max(...guards.current.map(v => v.alarm));
+    g.awareness = g.alarm > 0 ? 'ALARM CALL' :
+      guards.current.some(v => v.mode === 'alert') ? 'CONTACT CONFIRMED' :
+      guards.current.some(v => v.mode === 'investigate' || v.mode === 'search') ? 'INVESTIGATING LAST CONTACT' :
+      guards.current.some(v => v.mode === 'suspicious') ? 'SECURITY ATTENTION' : '';
     if (g.alarm >= 3 && g.status === 'playing') g.status = 'failed';
     if (g.status !== 'playing' && dragLook) onPause();
     if (g.status !== 'playing' && state.locked) document.exitPointerLock();
@@ -153,9 +245,14 @@ export default function Encounter({ onHUD, dragLook, onPause }: { onHUD: (hud: H
     <RigidBody ref={player} position={SPAWN} colliders={false} enabledRotations={[false, false, false]} friction={0} ccd>
       <CapsuleCollider args={[.55, .3]} />
     </RigidBody>
-    {guards.current.map((guard, index) => <GuardModel key={index} guard={guard} index={index} />)}
+    {guards.current.map((guard, index) => <GuardCharacter key={index} guard={guard} index={index} />)}
     <mesh ref={preview} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.3, .38, 40]} /><meshBasicMaterial color="#b9e2e5" /></mesh>
+    <mesh ref={lockBeam} visible={false}><cylinderGeometry args={[.012, .012, 1, 6]} /><meshBasicMaterial color="#c2dbe1" transparent opacity={0} depthWrite={false} /></mesh>
+    <group ref={seekerMesh} visible={false}>
+      <mesh castShadow><octahedronGeometry args={[.16]} /><meshStandardMaterial color="#16232c" metalness={.7} roughness={.16} emissive="#668b99" emissiveIntensity={.7} /></mesh>
+      <mesh scale={1.25}><octahedronGeometry args={[.16]} /><meshBasicMaterial color="#c5e5ed" wireframe transparent opacity={.7} depthWrite={false} /></mesh>
+      <pointLight color="#b5d8e5" intensity={1.1} distance={2.5} />
+    </group>
     <mesh ref={artifactMesh} position={ARTIFACT} castShadow><octahedronGeometry args={[.28]} /><meshStandardMaterial color="#162832" metalness={.8} roughness={.2} emissive="#6494a4" emissiveIntensity={.65} /></mesh>
   </>;
 }
-

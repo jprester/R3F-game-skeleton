@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import Encounter, { HUD, initialHUD } from "./game/Encounter";
@@ -10,9 +10,16 @@ export default function App() {
   const [error, setError] = useState("");
   const [dragLook, setDragLook] = useState(false);
   const [preferDragLook, setPreferDragLook] = useState(false);
+  const audio = useRef<AudioContext | null>(null);
+  useEffect(() => () => { if (audio.current) void audio.current.close(); }, []);
+  const activateAudio = () => {
+    if (!audio.current) audio.current = new AudioContext();
+    if (audio.current.state === "suspended") void audio.current.resume();
+  };
   const pause = useCallback(() => setDragLook(false), []);
   const updateHUD = useCallback((next: HUD) => setHUD(next), []);
   const start = () => {
+    activateAudio();
     if (preferDragLook) {
       setDragLook(true);
       return;
@@ -39,7 +46,7 @@ export default function App() {
             key={run}
             gravity={[0, -20, 0]}
             paused={(!hud.locked && !dragLook) || hud.status !== "playing"}>
-            <Encounter onHUD={updateHUD} dragLook={dragLook} onPause={pause} />
+            <Encounter onHUD={updateHUD} dragLook={dragLook} onPause={pause} audio={audio} />
           </Physics>
         </Suspense>
       </Canvas>
@@ -67,23 +74,24 @@ export default function App() {
       </section>
       {hud.locked && (
         <>
+          {hud.pulse && <div key={hud.pulse.id} className={`spell-pulse ${hud.pulse.kind}`} />}
           <div className="crosshair">+</div>
           <div className="target">{hud.target}</div>
           <div className="feedback" role="status">
             {hud.message}
           </div>
-          {hud.suspicion > 0.02 && (
+          {hud.awareness && (
             <div className="detection">
               <span>
                 {hud.alarm > 0
                   ? `ALARM CALL · ${Math.max(0, 3 - hud.alarm).toFixed(1)}s`
-                  : "SECURITY ATTENTION"}
+                  : hud.awareness}
               </span>
               <div>
                 <i
                   style={{
-                    width: `${(hud.alarm > 0 ? hud.alarm / 3 : hud.suspicion) * 100}%`,
-                    background: hud.alarm > 0 ? "#e89380" : "#d0c29c",
+                    width: `${(hud.alarm > 0 ? hud.alarm / 3 : hud.awareness === 'INVESTIGATING LAST CONTACT' ? 1 : hud.suspicion) * 100}%`,
+                    background: hud.alarm > 0 ? "#e89380" : hud.awareness === 'INVESTIGATING LAST CONTACT' ? '#a7c7d0' : '#d0c29c',
                   }}
                 />
               </div>
@@ -103,10 +111,15 @@ export default function App() {
             <strong>Blink</strong>
             <span>{hud.blink > 0 ? `${hud.blink.toFixed(1)}s` : "READY"}</span>
           </div>
+          <div>
+            <kbd>F</kbd>
+            <strong>Seeker Crystal</strong>
+            <span>{hud.seekerFlying ? "TRACKING" : hud.seeker > 0 ? `${hud.seeker.toFixed(1)}s` : "READY"}</span>
+          </div>
         </div>
         <p>
           WASD move · {dragLook ? "Right-drag look" : "Mouse look"} · Shift slow
-          · Space jump · E interact · Esc pause
+          · Space jump · E interact · M {hud.muted ? 'unmute' : 'mute'} · Esc pause
         </p>
       </div>
       {!hud.locked && (
@@ -132,7 +145,7 @@ export default function App() {
               {hud.status === "success"
                 ? `Extracted in ${Math.floor(hud.elapsed / 60)}m ${Math.floor(hud.elapsed % 60)}s. The annex is behind you.`
                 : hud.status === "failed"
-                  ? "A guard completed the alarm call. Break sightlines or interrupt them with Motor Lock before the call finishes."
+                  ? "A guard completed the alarm call. Break sightlines or immobilize them before the call finishes."
                   : "Enter the annex, recover the transit core from Research, and return here. Two guards stand between you and the objective."}
             </p>
             {hud.status === "playing" && (
@@ -147,9 +160,14 @@ export default function App() {
                   pale ring confirms a safe arrival.
                 </p>
                 <p>
+                  <b>F / Seeker Crystal</b> Launch at a visible guard within 14
+                  metres. It follows them around corners and holds them for 10
+                  seconds on impact. Its cooldown is 9 seconds.
+                </p>
+                <p>
                   <b>Stay out of sight.</b> Use the right-hand service passage
                   or time your crossing. Confirmed contact starts a 3-second
-                  alarm call.
+                  alarm call. Guards investigate where they last saw you.
                 </p>
               </div>
             )}
@@ -172,6 +190,7 @@ export default function App() {
                 <button
                   className="secondary"
                   onClick={() => {
+                    activateAudio();
                     setPreferDragLook(true);
                     setDragLook(true);
                     setError("");
@@ -181,7 +200,7 @@ export default function App() {
               </>
             )}
             <small className="prototype">
-              PLAYABLE BLOCKOUT / TWO GUARDS / TWO ABILITIES
+              PLAYABLE BLOCKOUT / TWO GUARDS / THREE ABILITIES
             </small>
           </section>
         </div>
