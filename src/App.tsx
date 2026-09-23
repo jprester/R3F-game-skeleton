@@ -93,11 +93,17 @@ export default function App() {
       <div className="health" aria-label={`Vitality ${hud.health} of ${PLAYER_MAX_HEALTH}`}>
         <span className="eyebrow">VITALITY</span>
         <div>{Array.from({ length: PLAYER_MAX_HEALTH }, (_, index) => <i key={index} className={index < hud.health ? "full" : ""} />)}</div>
+        {/* Four segments match the four body points observers check: head, shoulders, torso. */}
+        <div className={`visibility ${hud.exposure === 0 ? "unseen" : hud.exposure < 1 ? "partial" : "seen"}`}>
+          <span className="eyebrow">{hud.crouched ? "CROUCHED" : "STANDING"} · {hud.exposure === 0 ? "UNSEEN" : hud.exposure < 1 ? "PARTLY SEEN" : "SEEN"}</span>
+          <div>{[0, 1, 2, 3].map(index => <b key={index} className={index < Math.round(hud.exposure * 4) ? "lit" : ""} />)}</div>
+        </div>
       </div>
       {hud.locked && (
         <>
           {hud.pulse && <div key={hud.pulse.id} className={`spell-pulse ${hud.pulse.kind}`} />}
           <div className="crosshair">+</div>
+          {hud.restrain > 0 && <div className="restrain" aria-label="Restraint progress"><i style={{ width: `${hud.restrain * 100}%` }} /></div>}
           <div className="target">{hud.target}</div>
           <div className="feedback" role="status">
             {hud.message}
@@ -139,7 +145,7 @@ export default function App() {
         </div>
         <p>
           WASD move · {dragLook ? "Right-drag look" : "Mouse look"} · Shift quiet
-          · Space jump · E interact · M {hud.muted ? 'unmute' : 'mute'} · Esc pause
+          · C crouch · Space jump · E interact · M {hud.muted ? 'unmute' : 'mute'} · Esc pause
         </p>
       </div>
       {!hud.locked && (
@@ -197,7 +203,13 @@ export default function App() {
               <div className="brief-details">
                 <p>
                   <b>LMB / Motor Lock</b> Immobilize a visible guard or worker
-                  for 6 seconds. They resume their behavior afterward.
+                  for 6 seconds. They resume their behavior afterward, and a
+                  guard who recovers unreported radios that he was attacked.
+                </p>
+                <p>
+                  <b>Hold E / Restraint</b> Get within reach of an immobilized
+                  target and hold E for 1.5 seconds to bind them for the rest of
+                  the operation. Guards who find a bound body still report it.
                 </p>
                 <p>
                   <b>Q / Blink</b> Aim down at clear floor within 7 metres. A

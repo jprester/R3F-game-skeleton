@@ -21,12 +21,17 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
   const marker = useRef<Mesh>(null);
   const beacon = useRef<Mesh>(null);
   const muzzle = useRef<Mesh>(null);
+  const bindings = useRef<Group>(null);
   const lastPosition = useRef(guard.position.clone());
   const strideDistance = useRef(0);
 
   useFrame((_, delta) => {
     body.current?.setNextKinematicTranslation({ x: guard.position.x, y: .9, z: guard.position.z });
-    if (facing.current) facing.current.rotation.y = guard.facing;
+    if (facing.current) {
+      facing.current.rotation.y = guard.facing;
+      facing.current.position.y = guard.restrained ? -1.62 : -.9;
+    }
+    if (bindings.current) bindings.current.visible = guard.restrained;
     if (marker.current) marker.current.visible = guard.locked > 0;
     if (muzzle.current) muzzle.current.visible = guard.muzzleFlash > 0 && guard.locked <= 0;
     if (beacon.current) {
@@ -40,6 +45,14 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
 
     const traveled = lastPosition.current.distanceTo(guard.position);
     lastPosition.current.copy(guard.position);
+    if (guard.restrained) {
+      // Seated on the floor, legs forward, arms bound behind the back.
+      if (beacon.current) beacon.current.visible = false;
+      leftLeg.current?.rotation.set(-1.5, 0, 0); rightLeg.current?.rotation.set(-1.5, 0, 0);
+      leftArm.current?.rotation.set(.5, 0, 0); rightArm.current?.rotation.set(.5, 0, 0);
+      torso.current?.rotation.set(.12, 0, 0); head.current?.rotation.set(.25, 0, 0);
+      return;
+    }
     if (guard.locked > 0) return; // Motor Lock holds the exact pose in which it struck.
     strideDistance.current += traveled;
     const moving = traveled > .0001;
@@ -100,6 +113,10 @@ export default function GuardCharacter({ guard, index }: { guard: Guard; index: 
           <mesh ref={muzzle} visible={false} position={[0, .075, .49]}><sphereGeometry args={[.11, 8, 6]} /><meshBasicMaterial color="#f5c783" /></mesh>
         </group>}
       </group>)}
+      <group ref={bindings} visible={false}>
+        {/* Thin black-silver restraint bands pinning the arms to the torso. */}
+        {[1.02, 1.3].map(y => <mesh key={y} position={[0, y, -.03]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.45, .014, 6, 32]} /><meshStandardMaterial color="#0d1418" emissive="#9fc3cc" emissiveIntensity={.55} metalness={.6} roughness={.3} /></mesh>)}
+      </group>
       <mesh ref={marker} visible={false} position={[0, 1.13, 0]}><boxGeometry args={[.75, 1.75, .59]} /><meshBasicMaterial color="#a7dbe5" wireframe transparent opacity={.46} /></mesh>
       <mesh ref={beacon} visible={false} position={[0, 2.04, 0]}><octahedronGeometry args={[.13]} /><meshBasicMaterial color="#d8c68c" /></mesh>
     </group>

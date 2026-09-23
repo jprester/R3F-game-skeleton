@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { pathTo, seesPlayer } from './mechanics.ts';
+import { pathTo, playerExposure, sightRate } from './mechanics.ts';
 import { DEMO_LEVEL, type Level } from './levels.ts';
 
 export const WORKER_START = new Vector3(...DEMO_LEVEL.worker.start);
@@ -17,25 +17,40 @@ export interface Worker {
   report: number;
   /** This incapacitation has already been radioed in by security. */
   reported: boolean;
-  mode: 'working' | 'noticed' | 'fleeing' | 'calling' | 'locked';
+  /** Bound for the rest of the mission; never recovers. */
+  restrained: boolean;
+  /** How much of the player the worker currently sees (0–1), for the HUD. */
+  exposure: number;
+  mode: 'working' | 'noticed' | 'fleeing' | 'calling' | 'locked' | 'restrained';
 }
 
 export function createWorker(level: Level = DEMO_LEVEL): Worker {
   return {
     position: new Vector3(...level.worker.start), alarmPoint: new Vector3(...level.worker.alarm), facing: level.worker.facing,
-    suspicion: 0, locked: 0, witnessed: false, route: [], report: 0, reported: false,
+    suspicion: 0, locked: 0, witnessed: false, route: [], report: 0, reported: false, restrained: false, exposure: 0,
     mode: 'working',
   };
 }
 
 export function lockWorker(worker: Worker, duration: number) {
+  if (worker.restrained) return;
   if (worker.locked <= 0) worker.reported = false;
   worker.locked = Math.max(worker.locked, duration);
   worker.report = 0;
   worker.mode = 'locked';
 }
 
-export function updateWorker(worker: Worker, player: Vector3, dt: number, level: Level = DEMO_LEVEL) {
+/** Binds an immobilized worker for the rest of the mission, ending any report for good. */
+export function restrainWorker(worker: Worker) {
+  if (worker.locked <= 0 || worker.restrained) return false;
+  worker.restrained = true;
+  worker.locked = 0; worker.report = 0; worker.route = []; worker.mode = 'restrained';
+  return true;
+}
+
+export function updateWorker(worker: Worker, player: Vector3, dt: number, level: Level = DEMO_LEVEL, crouched = false) {
+  worker.exposure = 0;
+  if (worker.restrained) return;
   if (worker.locked > 0) {
     worker.locked = Math.max(0, worker.locked - dt);
     worker.report = 0;
@@ -44,8 +59,10 @@ export function updateWorker(worker: Worker, player: Vector3, dt: number, level:
   }
   if (!worker.witnessed) {
     const eye = worker.position.clone().add(new Vector3(0, 1.55, 0));
-    if (seesPlayer(eye, worker.facing, player, level)) {
-      worker.suspicion = Math.min(1, worker.suspicion + dt / .7);
+    worker.exposure = playerExposure(eye, worker.facing, player, crouched, level);
+    const rate = sightRate(eye, worker.facing, player, crouched, level, worker.exposure);
+    if (rate > 0) {
+      worker.suspicion = Math.min(1, worker.suspicion + dt * rate / .7);
       worker.mode = 'noticed';
       if (worker.suspicion >= 1) {
         worker.witnessed = true;

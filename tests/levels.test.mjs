@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { ANNEX_LEVEL, DEMO_LEVEL } from '../src/game/levels.ts';
-import { clearSight, createGuards, pathTo, safeFloor, updateGuard } from '../src/game/mechanics.ts';
+import { clearSight, createGuards, pathTo, playerExposure, safeFloor, updateGuard } from '../src/game/mechanics.ts';
 import { createWorker, updateWorker, WORKER_CALL_DURATION } from '../src/game/worker.ts';
 
 const v = ([x, y, z]) => new Vector3(x, y, z);
@@ -18,6 +18,32 @@ test('both levels keep their entrance, NPC starts, and alarm destination clear',
     assert.ok(safeFloor(worker.alarmPoint, level), `${level.id} alarm destination`);
     assert.ok(pathTo(worker.position, worker.alarmPoint, level).length > 0, `${level.id} worker can report`);
   }
+});
+
+test('guard patrols never pass through furniture', () => {
+  for (const level of [DEMO_LEVEL, ANNEX_LEVEL]) {
+    for (const guard of createGuards(level)) {
+      const [a, b] = guard.route;
+      for (let i = 0; i <= 20; i++) {
+        const point = a.clone().lerp(b, i / 20);
+        assert.ok(safeFloor(point, level), `${level.id} patrol blocked at ${point.x.toFixed(1)}, ${point.z.toFixed(1)}`);
+      }
+    }
+  }
+});
+
+test('crouching behind the added low cover hides the player from the nearest observer', () => {
+  const crouchedAt = (x, z) => new Vector3(x, 1.01, z);
+  const hidden = (level, eyes, spot) => eyes.every(eye =>
+    playerExposure(eye, Math.atan2(spot.x - eye.x, spot.z - eye.z), spot, true, level) === 0);
+  const lane = (x, z0, z1) => Array.from({ length: 11 }, (_, i) => new Vector3(x, 1.65, z0 + (z1 - z0) * i / 10));
+  for (const z of [-4.2, -5.6, -7]) assert.ok(hidden(ANNEX_LEVEL, lane(-5, -3, -8), crouchedAt(-2.4, z)), `operations desk run at z ${z}`);
+  for (const z of [-13.2, -14.6, -16]) assert.ok(hidden(ANNEX_LEVEL, lane(-5, -12, -17), crouchedAt(-2.4, z)), `records desk run at z ${z}`);
+  assert.ok(hidden(ANNEX_LEVEL, [new Vector3(3, 1.55, -21)], crouchedAt(5.3, -19.2)), 'vault crate hides the doorway from the worker');
+  const researchLane = Array.from({ length: 11 }, (_, i) => new Vector3(-2.8 + 5.8 * i / 10, 1.65, -13));
+  assert.ok(hidden(DEMO_LEVEL, researchLane, crouchedAt(5.15, -13.4)), 'Quiet Entry lab bench');
+  for (const spot of [[-2.4, -5.6], [-2.4, -14.6], [5.3, -19.2]]) assert.ok(safeFloor(new Vector3(spot[0], 0, spot[1]), ANNEX_LEVEL));
+  assert.ok(safeFloor(new Vector3(5.15, 0, -13.4), DEMO_LEVEL));
 });
 
 test('the records wing has two usable approaches to the vault', () => {

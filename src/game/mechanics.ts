@@ -22,6 +22,30 @@ export const LURE_HEARING_RANGE = 8;
 export const GUARD_STRIDE = .56;
 export const WALK_HEARING_RANGE = 5;
 export const QUIET_HEARING_RANGE = 1.5;
+export const CROUCH_HEARING_RANGE = 1;
+export type Gait = 'walk' | 'quiet' | 'crouch';
+const GAIT_HEARING_RANGE: Record<Gait, number> = { walk: WALK_HEARING_RANGE, quiet: QUIET_HEARING_RANGE, crouch: CROUCH_HEARING_RANGE };
+/** Crouching lowers the eye from 1.56 m to about 1.0 m, under desk and crate height. */
+export const STAND_EYE_OFFSET = .65;
+export const CROUCH_EYE_OFFSET = .1;
+export const CROUCH_SPEED = 1.5;
+/** Crouching in the open slows confirmation: a smaller, stiller silhouette. */
+export const CROUCH_VISIBILITY = .6;
+/**
+ * Suspicion a guard must reach before he walks over to investigate. A shorter glimpse only earns
+ * a glance: he stops, looks toward the spot for GLANCE_TIME, then resumes patrol. Wary guards investigate sooner.
+ */
+export const INVESTIGATE_AT = .4;
+export const WARY_INVESTIGATE_AT = .2;
+export const GLANCE_TIME = 2;
+/** Radians per second. Suspicious guards turn toward a glimpse at a human pace; confirmed contact snaps faster. */
+export const SUSPICIOUS_TURN_RATE = 2.5;
+export const ALERT_TURN_RATE = 8;
+export const SIGHT_RANGE = 10;
+const SIGHT_HALF_ANGLE = Math.PI / 3;
+/** Inside this cone and distance, sight confirms at full speed; beyond it, down to half speed. */
+const FOCUS_HALF_ANGLE = Math.PI / 6;
+const FOCUS_RANGE = 4;
 export const SHOT_WINDUP = .6;
 export const SHOT_COOLDOWN = 1;
 export const SHOT_HEARING_RANGE = 14;
@@ -33,6 +57,11 @@ export const WARY_DURATION = 30;
 export const RADIO_CALL_TIME = 2;
 /** How close a guard walks to an incapacitated colleague before radioing it in. */
 export const CHECK_DISTANCE = 1.4;
+/** Restraint: hold interact on an immobilized target within reach to bind them for the mission. */
+export const RESTRAIN_RANGE = 1.8;
+export const RESTRAIN_TIME = 1.5;
+/** A guard who recovers from Motor Lock unreported radios that he was attacked. */
+export const RECOVERED_GUARDS_REPORT = true;
 
 /** Walk distance drives the sound, so a stationary or immobilized guard stays quiet. */
 export function advanceFootsteps(distanceSinceStep: number, distanceMoved: number) {
@@ -187,12 +216,42 @@ export function advanceSeeker(flight: SeekerFlight, target: Vector3, dt: number,
   }
   return flight.position.distanceTo(goal) < .3 ? 'hit' : 'flying';
 }
+/** Cosine of the angle between a viewer's facing and a point, measured horizontally. */
+function facingDot(eye: Vector3, facing: number, point: Vector3) {
+  const dx = point.x - eye.x, dz = point.z - eye.z;
+  const horizontal = Math.hypot(dx, dz);
+  return horizontal < .001 ? 1 : (Math.sin(facing) * dx + Math.cos(facing) * dz) / horizontal;
+}
 export function seesPlayer(eye: Vector3, facing: number, player: Vector3, level: Level = DEMO_LEVEL) {
-  const delta = player.clone().sub(eye);
-  if (delta.length() > 10) return false;
-  const horizontal = Math.hypot(delta.x, delta.z);
-  const dot = horizontal < .001 ? 1 : (Math.sin(facing) * delta.x + Math.cos(facing) * delta.z) / horizontal;
-  return dot > Math.cos(Math.PI / 3) && clearSight(eye, player, level);
+  if (player.distanceTo(eye) > SIGHT_RANGE) return false;
+  return facingDot(eye, facing, player) > Math.cos(SIGHT_HALF_ANGLE) && clearSight(eye, player, level);
+}
+/**
+ * Fraction (0–1) of the player a viewer can see: head, both shoulders and torso are each
+ * checked against cover, so peeking past a corner or over a desk is only partial exposure.
+ */
+export function playerExposure(eye: Vector3, facing: number, player: Vector3, crouched: boolean, level: Level = DEMO_LEVEL) {
+  if (player.distanceTo(eye) > SIGHT_RANGE || facingDot(eye, facing, player) <= Math.cos(SIGHT_HALF_ANGLE)) return 0;
+  // Shoulders sit either side of the sight line, so they show around the edge of cover first.
+  const across = new Vector3(player.z - eye.z, 0, eye.x - player.x);
+  if (across.lengthSq() < 1e-6) across.set(1, 0, 0);
+  across.normalize().multiplyScalar(.24);
+  const shoulders = player.clone().setY(player.y - .25);
+  const samples = [player, shoulders.clone().add(across), shoulders.clone().sub(across), player.clone().setY(player.y - (crouched ? .35 : .6))];
+  return samples.filter(point => clearSight(eye, point, level)).length / samples.length;
+}
+/**
+ * How fast sight confirms the player, relative to a clear, close, head-on view (1).
+ * Exposure scales it; peripheral vision and distance each slow it down to half; crouching trims it.
+ */
+export function sightRate(eye: Vector3, facing: number, player: Vector3, crouched: boolean, level: Level = DEMO_LEVEL,
+  exposure = playerExposure(eye, facing, player, crouched, level)) {
+  if (exposure === 0) return 0;
+  const angle = Math.acos(Math.min(1, facingDot(eye, facing, player)));
+  const focus = angle <= FOCUS_HALF_ANGLE ? 1 : 1 - .5 * (angle - FOCUS_HALF_ANGLE) / (SIGHT_HALF_ANGLE - FOCUS_HALF_ANGLE);
+  const distance = player.distanceTo(eye);
+  const range = distance <= FOCUS_RANGE ? 1 : 1 - .5 * (distance - FOCUS_RANGE) / (SIGHT_RANGE - FOCUS_RANGE);
+  return exposure * focus * range * (crouched ? CROUCH_VISIBILITY : 1);
 }
 export function safeFloor(point: Vector3, level: Level = DEMO_LEVEL) {
   if (point.x < level.area.minX || point.x > level.area.maxX || point.z < level.area.minZ || point.z > level.area.maxZ) return false;
@@ -201,10 +260,13 @@ export function safeFloor(point: Vector3, level: Level = DEMO_LEVEL) {
 }
 /** An incapacitated guard or worker that security may find. */
 export interface Victim { kind: 'guard' | 'worker'; index: number }
-export interface Downed extends Victim { position: Vector3; reported: boolean }
+/** `height` is where observers look for the body: seated restrained bodies hide behind low cover. */
+export interface Downed extends Victim { position: Vector3; reported: boolean; height: number }
+export const STANDING_BODY_HEIGHT = 1.2;
+export const SEATED_BODY_HEIGHT = .7;
 /** A radio call completes after RADIO_CALL_TIME unless the caller is immobilized first. */
-export interface RadioCall { reason: 'contact' | 'down'; time: number; position: Vector3; victim: Victim | null }
-export interface GuardContext { downed: Downed[]; wary: boolean }
+export interface RadioCall { reason: 'contact' | 'down' | 'attacked'; time: number; position: Vector3; victim: Victim | null }
+export interface GuardContext { downed: Downed[]; wary: boolean; crouched?: boolean }
 const CALM: GuardContext = { downed: [], wary: false };
 
 export interface Guard {
@@ -219,7 +281,17 @@ export interface Guard {
   radioed: boolean;
   /** As a victim: this incapacitation has already been radioed in. */
   reported: boolean;
-  mode: 'patrol' | 'suspicious' | 'alert' | 'investigate' | 'search' | 'check' | 'locked';
+  /** Bound for the rest of the mission; never recovers. */
+  restrained: boolean;
+  /** How much of the player this guard currently sees (0–1), for the HUD. */
+  exposure: number;
+  /** Saw the player last frame; used to detect the moment sight is lost. */
+  seen: boolean;
+  /** Suspicion crossed the investigate threshold during this engagement; cleared on returning to patrol. */
+  curious: boolean;
+  /** Seconds left looking toward a brief glimpse, and the direction to look. */
+  glance: number; glanceFacing: number;
+  mode: 'patrol' | 'suspicious' | 'alert' | 'investigate' | 'search' | 'check' | 'locked' | 'restrained';
 }
 export function createGuards(level: Level = DEMO_LEVEL): Guard[] {
   return level.guards.map(({ route, armed }) => ({
@@ -227,26 +299,39 @@ export function createGuards(level: Level = DEMO_LEVEL): Guard[] {
     facing: Math.atan2(route[1][0] - route[0][0], route[1][2] - route[0][2]),
     suspicion: 0, alarm: 0, locked: 0, alerted: false, lastSeen: null, lastHeard: null, search: 0,
     armed, shotWindup: 0, shotCooldown: 0, muzzleFlash: 0,
-    investigation: [], checking: null, radio: null, radioed: false, reported: false, mode: 'patrol' as const,
+    investigation: [], checking: null, radio: null, radioed: false, reported: false, restrained: false, exposure: 0,
+    seen: false, curious: false, glance: 0, glanceFacing: 0, mode: 'patrol' as const,
   }));
 }
 /** Immobilizes a guard. A caster position means the guard saw where the spell came from. */
 export function lockGuard(g: Guard, duration: number, caster: Vector3 | null = null) {
+  if (g.restrained) return;
   if (g.locked <= 0) g.reported = false;
   g.locked = Math.max(g.locked, duration);
   g.alerted = true; g.suspicion = 1;
   if (caster) { g.lastSeen = new Vector3(caster.x, 0, caster.z); g.search = 4; }
   g.alarm = 0; g.shotWindup = 0; g.muzzleFlash = 0;
-  g.radio = null; g.checking = null; g.mode = 'locked';
+  g.radio = null; g.checking = null; g.glance = 0; g.mode = 'locked';
 }
+/** Binds an immobilized guard for the rest of the mission. His body can still be discovered. */
+export function restrainGuard(g: Guard) {
+  if (g.locked <= 0 || g.restrained) return false;
+  g.restrained = true;
+  g.locked = 0; g.alerted = false; g.suspicion = 0;
+  g.alarm = 0; g.shotWindup = 0; g.muzzleFlash = 0;
+  g.radio = null; g.checking = null; g.investigation = []; g.glance = 0; g.mode = 'restrained';
+  return true;
+}
+export const incapacitated = (g: Guard) => g.locked > 0 || g.restrained;
 function hearNoise(g: Guard, soundAt: Vector3, radius: number, searchTime: number, level: Level) {
-  if (g.locked > 0) return false;
+  if (incapacitated(g)) return false;
   const distance = Math.hypot(g.position.x - soundAt.x, g.position.z - soundAt.z);
   const openPath = clearSight(g.position.clone().setY(1.2), soundAt.clone().setY(1.2), level);
   if (distance > radius * (openPath ? 1 : .4)) return false;
   g.lastHeard = new Vector3(soundAt.x, 0, soundAt.z);
   g.lastSeen = null;
   g.checking = null;
+  g.glance = 0;
   g.investigation = [];
   g.search = searchTime;
   g.mode = 'investigate';
@@ -259,8 +344,10 @@ export function hearShot(g: Guard, shooterAt: Vector3, level: Level = DEMO_LEVEL
 }
 /** A colleague's contact report sends this guard to the reported position. */
 export function receiveContact(g: Guard, reportedAt: Vector3) {
-  if (g.locked > 0 || g.mode === 'alert' || g.mode === 'suspicious') return false;
+  if (incapacitated(g) || g.mode === 'alert' || g.mode === 'suspicious') return false;
   g.lastSeen = new Vector3(reportedAt.x, 0, reportedAt.z);
+  g.curious = true;
+  g.glance = 0;
   g.lastHeard = null;
   g.checking = null;
   g.investigation = [];
@@ -269,12 +356,16 @@ export function receiveContact(g: Guard, reportedAt: Vector3) {
   return true;
 }
 /** Footsteps provide a location to check, never visual confirmation or alarm progress. */
-export function hearFootstep(g: Guard, soundAt: Vector3, quiet: boolean, level: Level = DEMO_LEVEL) {
-  return hearNoise(g, soundAt, quiet ? QUIET_HEARING_RANGE : WALK_HEARING_RANGE, 3, level);
+export function hearFootstep(g: Guard, soundAt: Vector3, gait: Gait, level: Level = DEMO_LEVEL) {
+  return hearNoise(g, soundAt, GAIT_HEARING_RANGE[gait], 3, level);
 }
 /** A projected sound can redirect guards without revealing the caster. */
 export function hearLure(g: Guard, soundAt: Vector3, level: Level = DEMO_LEVEL) {
   return hearNoise(g, soundAt, LURE_HEARING_RANGE, 3.5, level);
+}
+function turnToward(g: Guard, angle: number, maxStep: number) {
+  const difference = Math.atan2(Math.sin(angle - g.facing), Math.cos(angle - g.facing));
+  g.facing += Math.max(-maxStep, Math.min(maxStep, difference));
 }
 function moveToward(g: Guard, target: Vector3, speed: number, dt: number) {
   const delta = target.clone().sub(g.position);
@@ -312,25 +403,37 @@ function checkColleague(g: Guard, dt: number, level: Level, context: GuardContex
 
 /** Returns true exactly when this guard fires. Damage is resolved after player abilities. */
 export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level = DEMO_LEVEL, context: GuardContext = CALM): boolean {
+  g.exposure = 0;
+  if (g.restrained) { g.mode = 'restrained'; return false; }
   g.muzzleFlash = Math.max(0, g.muzzleFlash - dt);
   if (g.locked > 0) {
     g.locked = Math.max(0, g.locked - dt);
     g.alarm = 0; g.shotWindup = 0; g.muzzleFlash = 0; g.radio = null; g.checking = null; g.mode = 'locked';
+    if (g.locked === 0 && !g.reported && RECOVERED_GUARDS_REPORT) {
+      g.radio = { reason: 'attacked', time: 0, position: g.position.clone(), victim: null };
+    }
     return false;
   }
   g.shotCooldown = Math.max(0, g.shotCooldown - dt);
   const eye = g.position.clone().add(new Vector3(0, 1.65, 0));
-  const visible = seesPlayer(eye, g.facing, player, level);
+  const crouched = context.crouched ?? false;
+  g.exposure = playerExposure(eye, g.facing, player, crouched, level);
+  const rate = sightRate(eye, g.facing, player, crouched, level, g.exposure);
+  const visible = rate > 0;
+  const lostSight = g.seen && !visible;
+  g.seen = visible;
   if (visible) {
+    g.glance = 0;
     g.lastSeen = new Vector3(player.x, 0, player.z);
     g.lastHeard = null;
     g.investigation = [];
     g.checking = null;
-    g.suspicion = Math.min(1, g.suspicion + dt / (context.wary ? WARY_DETECTION_TIME : DETECTION_TIME));
+    g.suspicion = Math.min(1, g.suspicion + dt * rate / (context.wary ? WARY_DETECTION_TIME : DETECTION_TIME));
     if (g.suspicion >= 1) g.alerted = true;
+    if (g.suspicion >= (context.wary ? WARY_INVESTIGATE_AT : INVESTIGATE_AT)) g.curious = true;
     g.search = 4;
     g.mode = g.alerted ? 'alert' : 'suspicious';
-    g.facing = Math.atan2(player.x - g.position.x, player.z - g.position.z);
+    turnToward(g, Math.atan2(player.x - g.position.x, player.z - g.position.z), (g.alerted ? ALERT_TURN_RATE : SUSPICIOUS_TURN_RATE) * dt);
     // Armed guards radio confirmed contact; unarmed guards make the facility alarm call instead.
     if (g.armed && g.alerted && !g.radioed) g.radio ??= { reason: 'contact', time: 0, position: g.lastSeen.clone(), victim: null };
     if (g.radio?.reason === 'contact') g.radio.position.copy(g.lastSeen);
@@ -352,9 +455,22 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   } else if (g.alerted && visible) g.alarm += dt;
   else g.alarm = Math.max(0, g.alarm - dt * 2);
   if (visible) return fired;
+  if (lostSight && !g.alerted && !g.curious && g.lastSeen) {
+    // Too brief to act on: look toward the spot instead of walking over.
+    g.glance = GLANCE_TIME;
+    g.glanceFacing = Math.atan2(g.lastSeen.x - g.position.x, g.lastSeen.z - g.position.z);
+    g.lastSeen = null;
+    g.search = 0;
+  }
+  if (g.glance > 0) {
+    g.glance = Math.max(0, g.glance - dt);
+    g.mode = 'suspicious';
+    turnToward(g, g.glanceFacing, SUSPICIOUS_TURN_RATE * dt);
+    return false;
+  }
   if (!g.checking && (g.mode === 'patrol' || g.mode === 'search')) {
     // Sound investigations take priority, so an Echo Lure can pull a guard away before discovery.
-    const found = context.downed.find(d => !d.reported && seesPlayer(eye, g.facing, d.position.clone().setY(1.2), level));
+    const found = context.downed.find(d => !d.reported && seesPlayer(eye, g.facing, d.position.clone().setY(d.height), level));
     if (found) {
       g.checking = { kind: found.kind, index: found.index, position: found.position.clone() };
       g.lastSeen = null; g.lastHeard = null; g.investigation = [];
@@ -380,6 +496,7 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   g.lastHeard = null;
   g.alerted = false;
   g.radioed = false;
+  g.curious = false;
   g.mode = 'patrol';
   if (g.investigation.length > 0) {
     if (moveToward(g, g.investigation[0], .85, dt)) g.investigation.shift();
@@ -388,6 +505,7 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   if (moveToward(g, target, .85, dt)) g.waypoint = (g.waypoint + 1) % g.route.length;
   return false;
 }
-export function canGuardHit(g: Guard, player: Vector3, level: Level = DEMO_LEVEL) {
-  return g.armed && g.alerted && g.locked <= 0 && seesPlayer(g.position.clone().add(new Vector3(0, 1.65, 0)), g.facing, player, level);
+/** Any visible part of the player can be hit; full cover (for example crouched behind a desk) cannot. */
+export function canGuardHit(g: Guard, player: Vector3, level: Level = DEMO_LEVEL, crouched = false) {
+  return g.armed && g.alerted && !incapacitated(g) && playerExposure(g.position.clone().add(new Vector3(0, 1.65, 0)), g.facing, player, crouched, level) > 0;
 }

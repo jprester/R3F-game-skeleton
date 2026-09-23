@@ -134,8 +134,8 @@ test('footsteps follow distance walked and stop under Motor Lock', () => {
 test('heard footsteps cause investigation without confirming sight or starting an alarm', () => {
   const guard = createGuards()[0];
   const sound = v(-3, 0, -1);
-  assert.equal(hearFootstep(guard, sound, true), false, 'slow movement stays quiet at 2 m');
-  assert.equal(hearFootstep(guard, sound, false), true);
+  assert.equal(hearFootstep(guard, sound, 'quiet'), false, 'slow movement stays quiet at 2 m');
+  assert.equal(hearFootstep(guard, sound, 'walk'), true);
   assert.equal(guard.mode, 'investigate');
   assert.equal(guard.lastSeen, null);
   for (let i = 0; i < 35; i++) updateGuard(guard, v(0, 1.5, 5.5), .05);
@@ -146,11 +146,11 @@ test('heard footsteps cause investigation without confirming sight or starting a
 test('walls muffle footsteps and immobilized guards ignore them', () => {
   const guard = createGuards()[0];
   guard.position.set(0, 0, -2);
-  assert.equal(hearFootstep(guard, v(0, 0, 1), false), false, 'wall muffles a 3 m footstep');
+  assert.equal(hearFootstep(guard, v(0, 0, 1), 'walk'), false, 'wall muffles a 3 m footstep');
   guard.position.set(-3, 0, -2);
-  assert.equal(hearFootstep(guard, v(-3, 0, 1), false), true, 'open doorway carries the same sound');
+  assert.equal(hearFootstep(guard, v(-3, 0, 1), 'walk'), true, 'open doorway carries the same sound');
   guard.locked = LOCK_DURATION;
-  assert.equal(hearFootstep(guard, v(-3, 0, -2), false), false);
+  assert.equal(hearFootstep(guard, v(-3, 0, -2), 'walk'), false);
 });
 test('Echo Lure redirects investigation without revealing its caster', () => {
   const guard = createGuards()[0];

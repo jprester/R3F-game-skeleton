@@ -14,21 +14,31 @@ export default function WorkerCharacter({ worker }: { worker: Worker }) {
   const rightArm = useRef<Group>(null);
   const marker = useRef<Mesh>(null);
   const beacon = useRef<Mesh>(null);
+  const bindings = useRef<Group>(null);
   const previous = useRef(worker.position.clone());
   const stride = useRef(0);
 
   useFrame((_, dt) => {
     body.current?.setNextKinematicTranslation({ x: worker.position.x, y: .9, z: worker.position.z });
-    if (facing.current) facing.current.rotation.y = worker.facing;
+    if (facing.current) {
+      facing.current.rotation.y = worker.facing;
+      facing.current.position.y = worker.restrained ? -1.63 : -.9;
+    }
+    if (bindings.current) bindings.current.visible = worker.restrained;
     if (marker.current) marker.current.visible = worker.locked > 0;
     if (beacon.current) {
-      beacon.current.visible = worker.mode !== 'working' && worker.mode !== 'locked';
+      beacon.current.visible = worker.mode !== 'working' && worker.mode !== 'locked' && worker.mode !== 'restrained';
       (beacon.current.material as MeshBasicMaterial).color.set(
         worker.mode === 'calling' ? '#f28c77' : '#e8c790',
       );
     }
     const traveled = previous.current.distanceTo(worker.position);
     previous.current.copy(worker.position);
+    if (worker.restrained) {
+      leftLeg.current?.rotation.set(-1.5, 0, 0); rightLeg.current?.rotation.set(-1.5, 0, 0);
+      leftArm.current?.rotation.set(.45, 0, 0); rightArm.current?.rotation.set(.45, 0, 0);
+      return;
+    }
     if (worker.locked > 0) return;
     stride.current += traveled;
     const swing = traveled > .0001 ? Math.sin(stride.current * 8) * .6 : 0;
@@ -56,6 +66,10 @@ export default function WorkerCharacter({ worker }: { worker: Worker }) {
         <mesh position={[0, -.28, 0]} castShadow><boxGeometry args={[.15, .56, .2]} /><meshStandardMaterial color="#8d786f" roughness={.9} /></mesh>
         <mesh position={[0, -.59, .02]} castShadow><boxGeometry args={[.13, .17, .16]} /><meshStandardMaterial color="#bc9e88" roughness={.92} /></mesh>
       </group>)}
+      <group ref={bindings} visible={false}>
+        {/* Thin black-silver restraint bands pinning the arms to the torso. */}
+        {[1.02, 1.3].map(y => <mesh key={y} position={[0, y, -.03]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.38, .014, 6, 32]} /><meshStandardMaterial color="#0d1418" emissive="#9fc3cc" emissiveIntensity={.55} metalness={.6} roughness={.3} /></mesh>)}
+      </group>
       <mesh ref={marker} visible={false} position={[0, 1.1, 0]}><boxGeometry args={[.7, 1.7, .55]} /><meshBasicMaterial color="#a7dbe5" wireframe transparent opacity={.46} /></mesh>
       <mesh ref={beacon} visible={false} position={[0, 2.03, 0]}><octahedronGeometry args={[.13]} /><meshBasicMaterial color="#e8c790" /></mesh>
     </group>

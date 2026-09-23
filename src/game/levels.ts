@@ -41,6 +41,8 @@ export const DEMO_LEVEL = level({
     box([0, .6, -16], [1.6, 1.2, 1.2], '#273b48'),
     box([-4.7, 1.1, -16], [1.5, 2.2, 2], '#29343e'),
     box([-4.5, .55, 4], [2, 1.1, 1], '#38454e'),
+    // Research lab bench: crouch cover beside the alarm guard's patrol, reached from the right doorway.
+    box([4.2, .7, -13.4], [1.1, 1.4, 2.4], '#34424b'),
   ],
   guards: [
     { route: [[-3, 0, -3], [-3, 0, -8]], armed: true },
@@ -84,7 +86,14 @@ export const ANNEX_LEVEL = level({
     box([4.9, .95, -14.2], [2.2, 1.9, 1.5], '#2d4953'),
     box([2.2, 1.1, -7.7], [1.3, 2.2, 1.6], '#29343e'),
     box([2.2, 1.1, -16.8], [1.3, 2.2, 1.6], '#29343e'),
-    box([-5.7, .75, -14], [1.8, 1.5, 1.1], '#38454e'),
+    // Kept clear of the armed guard's lane at x = -5.
+    box([-7.1, .75, -14], [1.8, 1.5, 1.1], '#38454e'),
+    // Direct route: low desk runs beside the armed lanes. Crouched behind them the player is hidden;
+    // standing, the head still shows, so the left stays fast-and-exposed or slow-and-covered.
+    box([-3.2, .75, -5.6], [.8, 1.5, 3.6], '#38454e'),
+    box([-3.2, .75, -14.6], [.8, 1.5, 3.6], '#38454e'),
+    // Vault crate: lets the player approach the worker from the right doorway unseen.
+    box([5.3, .65, -20.2], [1.9, 1.3, 1], '#34424b'),
     box([0, .6, -22], [1.6, 1.2, 1.2], '#273b48'),
     box([2.8, .55, 5.2], [2.3, 1.1, 1], '#38454e'),
   ],

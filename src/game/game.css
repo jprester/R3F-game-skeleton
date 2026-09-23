@@ -9,10 +9,16 @@ h1 { font-size: 25px; letter-spacing: -.03em; font-weight: 450; margin: 7px 0; }
 .mission { position: absolute; top: 129px; left: 36px; border-left: 2px solid #9abec9; padding: 0 0 0 15px; pointer-events: none; text-shadow: 0 1px 5px #000; }
 .mission p { margin: 8px 0 3px; font-size: 14px; }
 .mission small { font-size: 11px; color: #b1c1cb; }
-.health { position: absolute; top: 99px; right: 36px; text-align: right; pointer-events: none; }
+.health { position: absolute; top: 99px; right: 36px; text-align: right; pointer-events: none; text-shadow: 0 1px 3px #000c; }
 .health > div { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .health i { width: 24px; height: 6px; display: block; border: 1px solid #d4e4e66b; background: #192732; }
 .health i.full { background: #bad7dc; }
+.visibility { margin-top: 14px; }
+.visibility > div { display: flex; justify-content: flex-end; gap: 4px; margin-top: 7px; }
+.visibility b { width: 11px; height: 4px; display: block; background: #192732; border: 1px solid #d4e4e633; box-shadow: 0 0 3px #000a; }
+.visibility.partial b.lit { background: #d0c29c; }
+.visibility.seen b.lit { background: #e89380; }
+.visibility.unseen .eyebrow { opacity: .7; }
 .crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font: 20px monospace; color: #d5e6ecaa; pointer-events: none; }
 .target, .feedback { position: absolute; width: 100%; text-align: center; top: calc(50% + 30px); font-size: 12px; text-shadow: 0 2px 4px #000; pointer-events: none; }
 .feedback { top: auto; bottom: 155px; color: #bcd7e0; }
@@ -25,6 +31,9 @@ h1 { font-size: 25px; letter-spacing: -.03em; font-weight: 450; margin: 7px 0; }
 .spell-pulse.motor { background: radial-gradient(circle at center, #d3e7eb22, transparent 25%); }
 .spell-pulse.seeker { background: radial-gradient(circle at center, #c8eaf022, transparent 38%); }
 .spell-pulse.lure { background: radial-gradient(circle at center, #ebce9d1f, transparent 34%); }
+.spell-pulse.restrain { background: radial-gradient(circle at center, #c6dde41c, transparent 30%); }
+.restrain { position: absolute; top: calc(50% + 16px); left: 50%; transform: translateX(-50%); width: 64px; height: 2px; background: #16202c; pointer-events: none; }
+.restrain i { display: block; height: 100%; background: #c6dde4; }
 .spell-pulse.hit { background: radial-gradient(circle at center, transparent 38%, #cf524e88); animation-duration: .55s; }
 @keyframes spell-pulse { 0% { opacity: 0; } 28% { opacity: 1; } 100% { opacity: 0; } }
 .bottom { position: absolute; bottom: 24px; left: 36px; right: 36px; pointer-events: none; }

@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
 import { DEMO_LEVEL } from '../src/game/levels.ts';
-import { CHECK_DISTANCE, createGuards, hearLure, hearShot, lockGuard, pathTo, RADIO_CALL_TIME, safeFloor, updateGuard, WARY_DURATION } from '../src/game/mechanics.ts';
+import { canGuardHit, CHECK_DISTANCE, createGuards, hearFootstep, hearLure, hearShot, lockGuard, pathTo, RADIO_CALL_TIME, restrainGuard, safeFloor, updateGuard, WARY_DURATION } from '../src/game/mechanics.ts';
 import { createSecurity, updateSecurity } from '../src/game/security.ts';
-import { createWorker, lockWorker } from '../src/game/worker.ts';
+import { createWorker, lockWorker, restrainWorker, updateWorker, WORKER_CALL_DURATION } from '../src/game/worker.ts';
 
 const v = (x, y, z) => new Vector3(x, y, z);
 const hiddenPlayer = v(0, 1.5, 5.5);
@@ -48,14 +48,91 @@ test('immobilizing the guard mid-call cuts off the radio report', () => {
   assert.equal(scene.security.wary, 0);
 });
 
-test('a colleague who recovers before discovery is not reported', () => {
+test('a colleague who recovers before discovery reports the attack himself', () => {
   const scene = colleagueScene();
   const [victim, finder] = scene.guards;
   lockGuard(victim, 1);
   const reports = [];
   run(scene, hiddenPlayer, 6, events => reports.push(...events.reports));
-  assert.deepEqual(reports, []);
+  assert.deepEqual(reports, [{ guard: 0, reason: 'attacked' }], 'only the victim radios, once');
   assert.equal(finder.checking, null);
+  assert.equal(victim.reported, true);
+  assert.ok(scene.security.wary > 0);
+});
+
+test('locking a recovered guard again cuts off his attack report', () => {
+  const scene = colleagueScene();
+  const [victim] = scene.guards;
+  scene.guards[1].position.set(4, 0, -16); // out of sight of the victim
+  lockGuard(victim, 1);
+  const reports = [];
+  run(scene, hiddenPlayer, 6, events => {
+    reports.push(...events.reports);
+    if (victim.radio?.reason === 'attacked' && victim.radio.time > 1) lockGuard(victim, 20);
+  });
+  assert.deepEqual(reports, []);
+  assert.equal(victim.reported, false);
+});
+
+test('Restraint needs an immobilized target and binds it for the rest of the mission', () => {
+  const guard = createGuards()[0];
+  assert.equal(restrainGuard(guard), false, 'a free guard cannot be restrained');
+  lockGuard(guard, 6);
+  assert.equal(restrainGuard(guard), true);
+  const where = guard.position.clone();
+  const reports = [];
+  const scene = { guards: [guard], worker: createWorker(), security: createSecurity() };
+  // Stand in the open where the guard would see and shoot.
+  guard.facing = Math.PI;
+  run(scene, v(-3, 1.5, -6), 60, events => reports.push(...events.reports));
+  assert.equal(guard.mode, 'restrained');
+  assert.deepEqual(guard.position, where);
+  assert.equal(guard.suspicion, 0);
+  assert.deepEqual(reports, [], 'a restrained guard never radios');
+  assert.equal(hearFootstep(guard, v(-3, 0, -4), 'walk'), false);
+  lockGuard(guard, 6);
+  assert.equal(guard.locked, 0, 'Motor Lock has no effect on a bound guard');
+  guard.alerted = true;
+  assert.equal(canGuardHit(guard, v(-3, 1.5, -6)), false);
+});
+
+test('a restrained body can still be discovered and reported', () => {
+  const scene = colleagueScene();
+  const [victim] = scene.guards;
+  lockGuard(victim, 6);
+  restrainGuard(victim);
+  const reports = [];
+  run(scene, hiddenPlayer, 7, events => reports.push(...events.reports));
+  assert.deepEqual(reports, [{ guard: 1, reason: 'down' }]);
+  assert.equal(victim.reported, true);
+});
+
+test('a seated restrained body hides behind low cover where a standing one is seen', () => {
+  const discovers = restrained => {
+    const guards = createGuards();
+    const [victim, finder] = guards;
+    // Victim behind the low entry-room crate (1.1 m tall), finder on the other side looking at it.
+    victim.position.set(-4.5, 0, 5.5);
+    finder.position.set(-4.5, 0, 1); finder.facing = 0;
+    lockGuard(victim, 6);
+    if (restrained) restrainGuard(victim);
+    // The player waits out of view in Research, so the finder's attention is on the body.
+    updateSecurity(guards, createWorker(), v(0, 1.5, -16), .05, DEMO_LEVEL, createSecurity());
+    return finder.mode === 'check';
+  };
+  assert.equal(discovers(false), true, 'a frozen, standing guard shows over the crate');
+  assert.equal(discovers(true), false, 'a bound, seated guard is hidden by it');
+});
+
+test('a restrained worker never reports', () => {
+  const worker = createWorker();
+  lockWorker(worker, 6);
+  assert.equal(restrainWorker(worker), true);
+  for (let i = 0; i < 400; i++) updateWorker(worker, v(2.8, 1.5, -12), .05);
+  assert.equal(worker.mode, 'restrained');
+  assert.ok(worker.report < WORKER_CALL_DURATION);
+  lockWorker(worker, 6);
+  assert.equal(worker.locked, 0);
 });
 
 test('an Echo Lure pulls a checking guard away before the report', () => {
