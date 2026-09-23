@@ -1,68 +1,50 @@
-# R3F Collision Skeleton
+# Wayfarer — Quiet Entry
 
-A minimal React Three Fiber project demonstrating first-person controls with physics-based collision detection using Rapier.
+A small tactical magic infiltration prototype built with React Three Fiber, TypeScript, Vite and Rapier. Recover a transit core from a corporate research room and return to the extraction circle without letting security finish an alarm call.
 
-## Features
+## Run
 
-- **First-person controls** — WASD movement + mouse look
-- **Physics collision** — Player collides with walls, furniture, and obstacles
-- **Modular structure** — Reusable components for rooms and furniture
-- **TypeScript** — Full type safety
-
-## Tech Stack
-
-- **React** + **Vite** — Fast development
-- **Three.js** via **React Three Fiber** — 3D rendering
-- **@react-three/drei** — Useful R3F helpers
-- **@react-three/rapier** — Physics engine (Rapier)
-
-## Getting Started
-
-```bash
-# Install dependencies
+```sh
 npm install
-
-# Start development server
 npm run dev
 ```
 
-Then open http://localhost:3000 in your browser.
+Open http://localhost:3000. Click **Enter operation** to capture the mouse. If an embedded browser blocks capture, choose **Use drag-look controls**, then hold the right mouse button to look around.
 
 ## Controls
 
-| Key | Action |
-|-----|--------|
-| W / ↑ | Move forward |
-| S / ↓ | Move backward |
-| A / ← | Strafe left |
-| D / → | Strafe right |
-| Mouse | Look around |
+| Input | Action |
+| --- | --- |
+| WASD | Move |
+| Mouse | Look (right-drag in fallback mode) |
+| Shift | Slow movement |
 | Space | Jump |
-| ESC | Release mouse |
+| Left click | Motor Lock: 10 m range, 6 s immobilization, 4 s cooldown |
+| Q | Blink: aim at clear floor within 7 m; 3 s cooldown |
+| E | Recover the core / extract |
+| Escape | Pause and release mouse |
 
-## Project Structure
+Motor Lock leaves guards conscious and alert afterward. Blink requires a visible floor and clear capsule-sized arrival volume, including clearance from guards. Invalid casts do not consume cooldowns. The pale floor ring previews valid arrivals.
 
+Guards patrol fixed routes, detect within a 120-degree cone out to 10 m, and need 1.2 seconds of sight to confirm contact. Confirmed contact starts a 3-second alarm call. Walls and tall furniture block sight. Breaking contact reduces the call progress; Motor Lock clears it. Guards watch the last seen position for four seconds before returning to patrol. The right-hand passage provides a screened route through Operations. Slow movement is a precision control; hearing is not implemented.
+
+Recover the core with E near its pedestal in Research, then press E in the entry room's extraction circle. Success and failure screens offer a new attempt. Pausing freezes guards, physics, cooldowns and the mission timer.
+
+## Checks
+
+```sh
+npm run build
+npm test
 ```
-src/
-├── main.tsx              # Entry point
-├── App.tsx               # Canvas + Physics setup
-└── components/
-    ├── Scene.tsx         # Main scene composition
-    ├── Player.tsx        # First-person controller with Rapier
-    ├── Room.tsx          # Floor, walls, ceiling
-    ├── Furniture.tsx     # Tables, chairs, obstacles
-    └── UI.tsx            # HUD overlay
-```
 
-## Extending This Skeleton
+Tests require Node 22.6+ for TypeScript stripping. They cover wall occlusion, guard field of view, alarm interruption, Motor Lock recovery, safe destinations and actual Rapier grounding/targeting/arrival-volume queries.
 
-This is designed as a foundation for the **Liminal Drift** project. Next steps:
+## Code
 
-1. Add PBR textures (from ambientCG/PolyHaven)
-2. Implement procedural room generation
-3. Add atmospheric effects (fog, bloom, flickering lights)
-4. Integrate AI for scene generation
+- `src/game/mechanics.ts`: authored geometry, tuning constants and guard behavior.
+- `src/game/Environment.tsx`: blockout environment, lights and signs.
+- `src/game/Encounter.tsx`: input, player physics, guards, spells and mission loop.
+- `src/App.tsx` and `src/game/game.css`: briefing, HUD, pause and restart.
+- `src/level/` and the original `src/components/`: preserved office skeleton for future asset/level integration; the prototype currently uses its own compact, fully loaded encounter.
 
-## License
-
-MIT
+This is a gameplay blockout. Guards use simple humanoid meshes; there is no gunplay, sound perception, audio feedback, skeletal animation or pathfinding yet. Future work should focus on playtesting patrol/cooldown balance, then guard animation and subtle spell feedback before expanding the ability set.

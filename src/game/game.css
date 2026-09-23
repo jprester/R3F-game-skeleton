@@ -1,0 +1,36 @@
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #101922; color: #e1e9ed; }
+.game { width: 100%; height: 100%; }
+.topbar { position: absolute; inset: 30px 36px auto; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
+.eyebrow, .tag { font-size: 10px; letter-spacing: .2em; color: #a2b8c4; font-weight: 600; }
+h1 { font-size: 25px; letter-spacing: -.03em; font-weight: 450; margin: 7px 0; }
+.tag { border: 1px solid #9db7c333; padding: 10px 13px; }
+.mission { position: absolute; top: 129px; left: 36px; border-left: 2px solid #9abec9; padding: 0 0 0 15px; pointer-events: none; text-shadow: 0 1px 5px #000; }
+.mission p { margin: 8px 0 3px; font-size: 14px; }
+.mission small { font-size: 11px; color: #b1c1cb; }
+.crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font: 20px monospace; color: #d5e6ecaa; pointer-events: none; }
+.target, .feedback { position: absolute; width: 100%; text-align: center; top: calc(50% + 30px); font-size: 12px; text-shadow: 0 2px 4px #000; pointer-events: none; }
+.feedback { top: auto; bottom: 155px; color: #bcd7e0; }
+.detection { position: absolute; top: 23%; left: 50%; transform: translateX(-50%); width: 220px; text-align: center; font-size: 10px; letter-spacing: .15em; }
+.detection > div { height: 3px; background: #16202c; margin-top: 10px; }
+.detection i { height: 100%; display: block; transition: width .08s; }
+.bottom { position: absolute; bottom: 24px; left: 36px; right: 36px; pointer-events: none; }
+.abilities { display: flex; gap: 12px; }
+.abilities > div { background: #14222be6; border: 1px solid #91acba30; padding: 14px 16px; display: flex; align-items: center; gap: 13px; min-width: 220px; }
+kbd { font: 10px monospace; border: 1px solid #adc4ce66; padding: 5px; border-radius: 3px; }
+.abilities strong { font-size: 12px; font-weight: 500; }
+.abilities span { margin-left: auto; font-size: 9px; letter-spacing: .1em; color: #a8cbd0; }
+.bottom > p { font-size: 10px; color: #a8b7c3; margin-bottom: 0; }
+.scrim { position: absolute; inset: 0; display: grid; place-items: center; background: #08121bbd; backdrop-filter: blur(7px); padding: 24px; }
+.briefing { width: min(490px, 100%); padding: 34px; background: linear-gradient(140deg, #20323ef2, #111e29f7); border: 1px solid #9ab8c43d; box-shadow: 0 25px 100px #0005; }
+h2 { font-size: 34px; line-height: 1.1; letter-spacing: -.04em; font-weight: 450; margin: 15px 0 20px; }
+.briefing p { color: #b5c4cf; font-size: 13px; line-height: 1.7; }
+.brief-details { border-top: 1px solid #9ab8c425; margin: 22px 0; }
+.brief-details b { color: #e0e8ed; font-weight: 500; }
+button { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 14px 18px; background: #c2d7dc; color: #142430; border: 0; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600; }
+button:hover { background: #e2eef0; }
+button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+button.secondary { margin-top: 8px; background: transparent; color: #b5c4cf; border: 1px solid #9ab8c430; }
+.prototype { display: block; font-size: 8px; letter-spacing: .17em; color: #7f9aa9; margin-top: 20px; }
+@media (max-width: 600px) { .topbar { inset: 20px 20px auto; } .tag { display: none; } .mission { left: 20px; } .bottom { left: 20px; right: 20px; } .abilities > div { min-width: 0; flex: 1; gap: 8px; padding: 10px; } .briefing { padding: 24px; } }
