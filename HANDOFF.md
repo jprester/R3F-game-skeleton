@@ -1,0 +1,96 @@
+# Wayfarer game — development handoff
+
+Updated 2026-09-23. This document is for a developer or coding model joining the project without the earlier conversation. Read [README.md](README.md) for player-facing controls and run instructions; this file covers intent, implementation, history, and safe continuation points. The repository, rather than this document, is authoritative if details diverge.
+
+## Project intent
+
+Wayfarer is a first-person tactical infiltration game in a modern or near-future corporate setting. The protagonist is an elite female operative from a technologically advanced magical civilization. Magic is engineered, standardized, quiet, and precise. She avoids contact when possible, uses nonlethal incapacitation when necessary, and escalates only when required. The fantasy is a professional magical special operator outmaneuvering competent modern security, not a conventional wizard with flashy spells.
+
+The story premise is a covert recovery: a corporation has acquired a **Transit Core** from her world. She enters a corporate annex, retrieves it, and extracts. A larger mystery about how the core arrived is possible later, but the current goal is a small playable infiltration slice. The original concept also suggests spatial manipulation, perception editing, recon wisps, guardian shards, and defensive fields; these are **ideas, not implemented features**. Keep the visual language restrained: dark graphite, steel, subdued blue-white magical effects, brief spatial distortion, and corporate architecture. Large spectacle should signal an operational failure or deliberate escalation.
+
+The user has preferred incremental, playable changes and has tested the prototype repeatedly. Preserve the compact **Quiet Entry** level as a mechanics demo while iterating on the main mission. Do not begin with a large Blender asset pipeline, open world, inventory, skill tree, or many new spells. The central prototype question remains whether **Blink + Motor Lock + Seeker Crystal + stealth** makes a distinctive, enjoyable loop.
+
+## What is playable now
+
+The game is a React Three Fiber / Three.js / TypeScript / Vite app with Rapier collision and physics. It starts on the **Records Wing** mission. The briefing can switch to **Quiet Entry**, the smaller original test office. Both are code-built blockouts, with no imported character or environment models.
+
+- **Records Wing:** entry/extraction room, Operations and Records sections, then a vault holding the Transit Core. The left passage is direct and exposed to two armed guards. The right service passage makes a longer detour through offset doorways and shelving that blocks sight; two unarmed guards there can raise the alarm. Signs, floor strips, and cooler right-side lighting explain the split. A civilian worker near the core can run to a vault alarm panel. The crate in the entry room was moved away from the extraction ring.
+- **Quiet Entry:** smaller office with one armed guard, one alarm guard, an office worker, the core, and extraction. It is retained for fast mechanic tests.
+- **Objective:** press `E` near the core, return to the marked entry circle, then press `E` to extract. Success and failure screens support retries and level switching.
+- **Failure:** three guard hits, a completed guard alarm call, a completed worker report, or falling out of the level. The game pauses while the briefing/menu is open.
+
+### Controls and ability tuning
+
+| Input | Current behavior |
+| --- | --- |
+| WASD / mouse | Move / look; pointer lock normally, right-drag fallback when capture is unavailable |
+| Shift / Space | Quiet slower movement / jump |
+| LMB — Motor Lock | Instant, line-of-sight immobilization of a visible guard or worker within 10 m; lasts 6 s; 4 s cooldown |
+| Q — Blink | Teleport to visible floor within 7 m; 3 s cooldown. Requires a clear floor location and an unoccupied Rapier capsule arrival volume; invalid casts do not consume cooldown |
+| F — Seeker Crystal | Launch at a visible guard or worker within 14 m; guided projectile follows around cover using pathfinding; holds target for 10 s on impact; 9 s cooldown |
+| R — Echo Lure | Project a sound to visible floor within 12 m; nearby guards investigate the location without identifying the caster; 8 s cooldown |
+| E / M / Escape | Interact / mute audio / pause |
+
+The HUD shows health, cooldowns, aiming warnings, detection/alarm or worker-report progress, targeting prompts, and short feedback messages. Blink and Echo Lure have floor previews. Spells have restrained visual and synthesized audio cues.
+
+### Security and audio
+
+Guards patrol authored routes. Their 120-degree view cone extends 10 m and requires 1.2 seconds of visible contact to confirm the player. Walls and tall furniture block sight. Armed guards then aim for **0.6 s** and fire; the recovery/cooldown is **1 s**. Shots use a line-of-sight hit check and a brief amber tracer, with a muzzle flash and positional shot sound. Sight loss, cover, Blink, or immobilization can prevent a hit. Unarmed guards call an alarm after **3 s** of confirmed contact; losing sight reduces progress. Guards can investigate last seen or heard positions and route through the authored doorways.
+
+Player footsteps can attract guards. Shift reduces the hearing radius; walls muffle it. Hearing alone does not confirm the player or start an alarm. Guards also make positional walking sounds, tuned to be audible across the small office without being overly loud. Their steps stop when stationary or immobilized. Audio is synthesized via Web Audio rather than external sound files.
+
+The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after that the worker runs to the level's alarm point and spends **4 s** reporting. Motor Lock or Seeker Crystal interrupts the report and freezes the worker. Once a previously alerted worker recovers, they resume trying to report. Echo Lure and footsteps do not distract the worker.
+
+## Development history at a glance
+
+1. Started from an existing Three.js/Rapier office skeleton and made a very small first-person infiltration encounter.
+2. Added player movement, Rapier collision, guard patrol/sight/alarm behavior, core recovery, extraction, HUD, pause/restart, and safe Blink placement.
+3. Added Motor Lock and a guided Seeker Crystal, with targeting and nonlethal hold behavior.
+4. Added guard footsteps and player footstep hearing; tuned distance and loudness through user playtesting.
+5. Added Echo Lure to redirect guard investigations, plus its floor preview and sound.
+6. Added the unarmed office worker and their run-to-panel report behavior.
+7. Armed selected guards, added telegraphed fire, three-segment player health, then shortened fire timing and added tracers at the user's request.
+8. Extracted level data from the original office and built the larger selectable Records Wing mission. The original office became the Quiet Entry demo.
+9. Moved a crate off the Records Wing extraction point; differentiated its two routes through geometry, guard roles, cover, signage, floor markings, and lighting.
+
+## Code map and important invariants
+
+| Path | Responsibility |
+| --- | --- |
+| `src/App.tsx` | Top-level React app, level picker, briefing, HUD, pointer-lock/fallback flow, restart, shared audio context |
+| `src/game/Encounter.tsx` | Active game loop: input, player body and camera, spell targeting/casts, guard and worker updates, shot resolution, objective and failure handling, visual/audio effects |
+| `src/game/levels.ts` | **Active level source of truth:** solids, precomputed bounds, play area, spawn/core/extraction, guard routes and armed flags, worker/panel, lights, signs |
+| `src/game/mechanics.ts` | Guard AI, vision, hearing, navigation, Blink-safe floor checks, Seeker flight, gameplay constants. Most helpers take a `Level`; omitted level defaults to Quiet Entry for older tests/tools |
+| `src/game/worker.ts` | Worker state machine and report behavior; also receives the selected level |
+| `src/game/Environment.tsx` | Renders `level.solids` as Rapier fixed colliders and meshes; also lights, signs, panel, extraction ring, route cues |
+| `src/game/GuardCharacter.tsx`, `WorkerCharacter.tsx` | Code-built NPC blockouts and animations; character rigid bodies carry identifiers used by Rapier targeting rays |
+| `src/game/GuardFootsteps.ts` | Synthesized positional guard walking audio |
+| `src/game/game.css` | HUD and briefing appearance |
+| `tests/*.test.mjs` | Mechanics, level connectivity, worker behavior, and selected real Rapier collision queries |
+
+`src/level/` and much of `src/components/` are preserved from the earlier skeleton but are **not the current encounter implementation**. Start in `src/game/` and `src/App.tsx` for gameplay work. `src/main.tsx` mounts `App`.
+
+When editing a level, keep the visible and physical world aligned: add walls, doors, and cover to `level.solids`, because those solids drive rendering, Rapier colliders, line-of-sight bounds, Blink safety, and the 0.5 m navigation grid. Decorative-only features belong in `Environment.tsx`. Check guard route endpoints and the worker's route against the new geometry. The tests in `tests/levels.test.mjs` specifically check clear NPC starts, two reachable approaches, the longer right detour, cover occlusion, and the worker's ability to reach the alarm.
+
+Rapier handles the player and NPC collision bodies. The first Rapier targeting ray hit prevents spells from selecting NPCs through a wall. Blink combines a static floor/clearance check with a Rapier capsule intersection query to reject occupied arrivals. The `Encounter` component receives a `level` prop; `App` remounts the `Physics` tree when switching levels or restarting, which resets the encounter state.
+
+## Running and checking
+
+From the repository root:
+
+```sh
+npm install
+npm run dev
+npm test
+npm run build
+```
+
+Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **23 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
+
+## Prototype limits and useful next work
+
+The Records Wing is a gameplay blockout, not finished art. Patrols, hearing, cooldowns, guard fire, and the two route choices still need end-to-end human playtesting and balance. The next useful pass is to play both routes through core retrieval **and extraction**, note where the player is confused or overwhelmed, then tune cover and patrol timing. Preserve the distinct risk profiles: fast/exposed/armed on the left, longer/covered/alarm risk on the right. Prefer improving readable decisions before adding another large map or more powers.
+
+Current guard gunfire is a sight-based hit event with a tracer effect, not a physical projectile simulation. There is one tracer visual ref in `Encounter`, so simultaneous shots from the two armed guards can overwrite each other's streak, although both shot events resolve. Guard and worker models are primitive meshes; there is no animation or Blender asset pipeline. There is no save system, inventory, recon wisp, guardian shard, defensive field, or sophisticated squad/cover AI yet. These are future possibilities, not missing parts of the current prototype.
+
+For any continued work: make a small playable change, keep Quiet Entry working, update the active level data rather than the unused skeleton, run tests and build, and verify important visual or input changes in the game. Update this handoff when a major mechanic or architecture decision changes.

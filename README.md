@@ -2,6 +2,8 @@
 
 A small tactical magic infiltration prototype built with React Three Fiber, TypeScript, Vite and Rapier. The default Records Wing mission has two side routes through Operations and Records to a vault: a direct, exposed security route on the left and a longer service route with cover on the right. Recover the transit core and return to the extraction circle without letting security finish an alarm call or a worker reach an alarm panel. The original Quiet Entry office remains selectable as a compact mechanics demo.
 
+For design intent, development history, architecture, and continuation notes, see [HANDOFF.md](HANDOFF.md).
+
 ## Run
 
 ```sh
