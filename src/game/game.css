@@ -38,6 +38,8 @@ h1 { font-size: 25px; letter-spacing: -.03em; font-weight: 450; margin: 7px 0; }
 .threats .investigating { stroke: #a7c7d0; }
 .threats .radio { stroke: #e0ae78; }
 .threats .alert { stroke: #e8847a; }
+.veil-overlay { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 45%, #0b1a2233 70%, #0a161dcc 100%); box-shadow: inset 0 0 0 1px #9fc6d233; transition: opacity .3s; }
+.spell-pulse.veil { background: radial-gradient(circle at center, transparent 20%, #9fc6d21f 60%, transparent 90%); animation-duration: .9s; }
 .spell-pulse.restrain { background: radial-gradient(circle at center, #c6dde41c, transparent 30%); }
 .restrain { position: absolute; top: calc(50% + 16px); left: 50%; transform: translateX(-50%); width: 64px; height: 2px; background: #16202c; pointer-events: none; }
 .restrain i { display: block; height: 100%; background: #c6dde4; }
@@ -45,7 +47,9 @@ h1 { font-size: 25px; letter-spacing: -.03em; font-weight: 450; margin: 7px 0; }
 @keyframes spell-pulse { 0% { opacity: 0; } 28% { opacity: 1; } 100% { opacity: 0; } }
 .bottom { position: absolute; bottom: 24px; left: 36px; right: 36px; pointer-events: none; }
 .abilities { display: flex; gap: 12px; }
-.abilities > div { background: #14222be6; border: 1px solid #91acba30; padding: 14px 16px; display: flex; align-items: center; gap: 13px; min-width: 220px; }
+.abilities > div { background: #14222be6; border: 1px solid #91acba30; padding: 13px 14px; display: flex; align-items: center; gap: 11px; flex: 1 1 0; min-width: 0; max-width: 220px; }
+.abilities strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.abilities span { white-space: nowrap; }
 kbd { font: 10px monospace; border: 1px solid #adc4ce66; padding: 5px; border-radius: 3px; }
 .abilities strong { font-size: 12px; font-weight: 500; }
 .abilities span { margin-left: auto; font-size: 9px; letter-spacing: .1em; color: #a8cbd0; }

@@ -54,6 +54,13 @@ export const SIGHT_HALF_ANGLE = Math.PI / 3;
 export const FOCUS_HALF_ANGLE = Math.PI / 6;
 export const FOCUS_RANGE = 4;
 /**
+ * Veil suppresses attention rather than sight: while it lasts, observers overlook the player,
+ * but anyone who can see them within this range notices, which breaks it.
+ */
+export const VEIL_DURATION = 6;
+export const VEIL_COOLDOWN = 20;
+export const VEIL_BREAK_RANGE = 3;
+/**
  * Life Sense: a pulse that reveals every living being within range of where it was cast,
  * through walls, with their facing. It shows where people are, not where they will go.
  */
@@ -248,8 +255,11 @@ export function seesPlayer(eye: Vector3, facing: number, player: Vector3, level:
  * Reciprocity: shoulders only count when the head or torso is also visible. The camera is the
  * head, so a shoulder poking past a corner the player cannot see around never gives them away.
  */
-export function playerExposure(eye: Vector3, facing: number, player: Vector3, crouched: boolean, level: Level = DEMO_LEVEL) {
-  if (player.distanceTo(eye) > SIGHT_RANGE || facingDot(eye, facing, player) <= Math.cos(SIGHT_HALF_ANGLE)) return 0;
+/** A viewer's field of view: how far it sees and half the width of its cone. */
+export interface Optics { range: number; halfAngle: number }
+export const GUARD_OPTICS: Optics = { range: SIGHT_RANGE, halfAngle: SIGHT_HALF_ANGLE };
+export function playerExposure(eye: Vector3, facing: number, player: Vector3, crouched: boolean, level: Level = DEMO_LEVEL, optics = GUARD_OPTICS) {
+  if (player.distanceTo(eye) > optics.range || facingDot(eye, facing, player) <= Math.cos(optics.halfAngle)) return 0;
   const head = clearSight(eye, player, level);
   const torso = clearSight(eye, player.clone().setY(player.y - (crouched ? .35 : .6)), level);
   if (!head && !torso) return 0;
@@ -287,7 +297,8 @@ export const STANDING_BODY_HEIGHT = 1.2;
 export const SEATED_BODY_HEIGHT = .7;
 /** A radio call completes after RADIO_CALL_TIME unless the caller is immobilized first. */
 export interface RadioCall { reason: 'contact' | 'down' | 'attacked'; time: number; position: Vector3; victim: Victim | null }
-export interface GuardContext { downed: Downed[]; wary: boolean; crouched?: boolean }
+/** `veiled`: the player is under Veil, so observers overlook them (the encounter ends it on close contact). */
+export interface GuardContext { downed: Downed[]; wary: boolean; crouched?: boolean; veiled?: boolean }
 const CALM: GuardContext = { downed: [], wary: false };
 
 export interface Guard {
@@ -443,7 +454,7 @@ export function updateGuard(g: Guard, player: Vector3, dt: number, level: Level 
   g.shotCooldown = Math.max(0, g.shotCooldown - dt);
   const eye = g.position.clone().add(new Vector3(0, 1.65, 0));
   const crouched = context.crouched ?? false;
-  g.exposure = playerExposure(eye, g.facing, player, crouched, level);
+  g.exposure = context.veiled ? 0 : playerExposure(eye, g.facing, player, crouched, level);
   const rate = sightRate(eye, g.facing, player, crouched, level, g.exposure);
   const visible = rate > 0;
   const lostSight = g.seen && !visible;

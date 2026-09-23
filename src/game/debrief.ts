@@ -11,6 +11,8 @@ export interface OperationStats {
   noticed: number;
   /** Completed radio reports of any kind: contact, a colleague down, or a recovered guard's attack. */
   reports: number;
+  /** Times a camera flagged the player; each also counts as a report. */
+  cameraFlags: number;
   /** Radio calls stopped by immobilizing the caller. */
   callsCutOff: number;
   hitsTaken: number;
@@ -19,8 +21,8 @@ export interface OperationStats {
 }
 
 export const createStats = (): OperationStats => ({
-  spotted: 0, noticed: 0, reports: 0, callsCutOff: 0, hitsTaken: 0, restraints: 0,
-  casts: { motor: 0, blink: 0, seeker: 0, lure: 0, sense: 0 },
+  spotted: 0, noticed: 0, reports: 0, cameraFlags: 0, callsCutOff: 0, hitsTaken: 0, restraints: 0,
+  casts: { motor: 0, blink: 0, seeker: 0, lure: 0, sense: 0, veil: 0 },
 });
 
 export type Rating = 'ghost' | 'discreet' | 'compromised';

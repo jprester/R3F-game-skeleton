@@ -19,7 +19,7 @@ function scene() {
 }
 
 test('the registry has unique ids and inputs, and every spell is counted in the debrief', () => {
-  assert.deepEqual(SPELLS.map(s => s.id), ['motor', 'blink', 'seeker', 'lure', 'sense'], 'HUD order');
+  assert.deepEqual(SPELLS.map(s => s.id), ['motor', 'blink', 'seeker', 'lure', 'sense', 'veil'], 'HUD order');
   assert.equal(new Set(SPELLS.map(s => s.code)).size, SPELLS.length);
   assert.deepEqual(Object.keys(createStats().casts).sort(), SPELLS.map(s => s.id).sort());
 });

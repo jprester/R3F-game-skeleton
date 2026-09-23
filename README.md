@@ -20,6 +20,7 @@ Open http://localhost:3000 (or the URL Vite prints if that port is occupied). Ch
 | WASD | Move |
 | Mouse | Look (right-drag in fallback mode) |
 | Shift | Slow, quieter movement |
+| X | Veil: for 6 s, guards, the worker and cameras overlook you; anyone who can see you within 3 m breaks it, as does casting another spell; 20 s cooldown |
 | V | Life Sense: reveal everyone within 16 m through walls for 4 s, with where they are looking; 20 s cooldown |
 | C | Toggle crouch: lower eye line (hides behind desks and crates), slowest and quietest movement; Space stands up |
 | Space | Jump |
@@ -31,6 +32,8 @@ Open http://localhost:3000 (or the URL Vite prints if that port is occupied). Ch
 | E | Recover the core / extract |
 | M | Mute or unmute cues |
 | Escape | Pause and release mouse |
+
+Ceiling security cameras sweep a narrow cone that is always drawn on the floor. They see over low cover from above, and about 2 seconds in view flags you: there is no alarm, but the nearest guard comes to check the spot and security turns wary. Time the sweep, use the blind spot along the wall under the lens, or Veil past.
 
 After each attempt, a debrief lists time, detections, radio reports, calls cut off, hits, restraints and spells cast, and rates successful runs Ghost (never seen, nothing reported), Discreet (never seen, something reported) or Compromised (seen or hit). Your best run per level is remembered in this browser.
 

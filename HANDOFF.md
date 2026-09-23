@@ -14,7 +14,7 @@ The user has preferred incremental, playable changes and has tested the prototyp
 
 The game is a React Three Fiber / Three.js / TypeScript / Vite app with Rapier collision and physics. It starts on the **Records Wing** mission. The briefing can switch to **Quiet Entry**, the smaller original test office. Both are code-built blockouts, with no imported character or environment models.
 
-- **Records Wing:** entry/extraction room, Operations and Records sections, then a vault holding the Transit Core. The left passage is direct and exposed to two armed guards. The right service passage makes a longer detour through offset doorways and shelving that blocks sight; two unarmed guards there can raise the alarm. Signs, floor strips, and cooler right-side lighting explain the split. A civilian worker near the core can run to a vault alarm panel. The crate in the entry room was moved away from the extraction ring. Low desk runs (1.5 m) beside both armed lanes on the left hide a crouched player but show a standing player's head, so the direct route is fast-and-exposed standing or slow-and-covered crouched. A low vault crate (1.3 m) by the right doorway lets the player approach the worker unseen. The service route's tall shelving is unchanged.
+- **Records Wing:** entry/extraction room, Operations and Records sections, then a vault holding the Transit Core. The left passage is direct and exposed to two armed guards. The right service passage makes a longer detour through offset doorways and shelving that blocks sight; an unarmed alarm guard patrols its Operations room, and a security camera (below) watches its Records room. Signs, floor strips, and cooler right-side lighting explain the split. A civilian worker near the core can run to a vault alarm panel. The crate in the entry room was moved away from the extraction ring. Low desk runs (1.5 m) beside both armed lanes on the left hide a crouched player but show a standing player's head, so the direct route is fast-and-exposed standing or slow-and-covered crouched. A low vault crate (1.3 m) by the right doorway lets the player approach the worker unseen. The service route's tall shelving is unchanged.
 - **Quiet Entry:** smaller office with one armed guard, one alarm guard, an office worker, the core, and extraction. A 1.4 m lab bench in Research gives crouch cover beside the alarm guard's patrol, reached from the right doorway. It is retained for fast mechanic tests.
 - **Objective:** press `E` near the core, return to the marked entry circle, then press `E` to extract. Success and failure screens support retries and level switching.
 - **Failure:** three guard hits, a completed guard alarm call, a completed worker report, or falling out of the level. The game pauses while the briefing/menu is open.
@@ -25,6 +25,7 @@ The game is a React Three Fiber / Three.js / TypeScript / Vite app with Rapier c
 | --- | --- |
 | WASD / mouse | Move / look; pointer lock normally, right-drag fallback when capture is unavailable |
 | Shift / Space | Quiet slower movement / jump (Space stands up from a crouch) |
+| X — Veil | For 6 s, guards, the worker and cameras overlook the player (attention suppression, not invisibility). Breaks if a conscious observer who can see the player is within 3 m, or when another spell is cast; Restraint does not break it. 20 s cooldown |
 | V — Life Sense | Reveals every guard and worker within 16 m of the cast point, through walls, for 4 s: state-coloured silhouette, head-height gaze line, full view cone and brighter focus cone on the floor. 20 s cooldown. Shows position and facing, never future patrol routes |
 | C | Toggle crouch: eye drops from 1.56 m to about 1.0 m (below 1.1 m crates and 1.5 m desks), 1.5 m/s, 1 m footstep hearing range |
 | LMB — Motor Lock | Instant, line-of-sight immobilization of a visible guard or worker within 10 m; lasts 6 s; 4 s cooldown |
@@ -33,6 +34,8 @@ The game is a React Three Fiber / Three.js / TypeScript / Vite app with Rapier c
 | F — Seeker Crystal | Launch at a visible guard or worker within 14 m; guided projectile follows around cover using pathfinding; holds target for 10 s on impact; 9 s cooldown |
 | R — Echo Lure | Project a sound to visible floor within 12 m; nearby guards investigate the location without identifying the caster; 8 s cooldown |
 | E / M / Escape | Interact / mute audio / pause |
+
+Security cameras (`src/game/camera.ts`, drawn by `CameraRig.tsx`, advanced by `updateSecurity`) are ceiling-mounted at 2.9 m and sweep a narrow cone (±0.45 rad, 9 m) back and forth at 0.35 rad/s, holding 1.5 s at each end. Their floor footprint is always drawn and tints amber while tracking and red after a flag. They reuse `playerExposure` with `CAMERA_OPTICS`, so they see over low cover from above while tall furniture still hides the player. About 2 s of continuous view flags the player (crouching slows it as for guards); suspicion drains when out of view. A flag never raises the alarm: monitoring sends the nearest conscious, unengaged guard to investigate the spot (`receiveContact`), makes security wary, and the camera stops building suspicion for 6 s. The debrief counts a flag as a camera flag and as a report, so it caps the rating at Discreet. Cameras cannot be targeted by spells; Veil or timing the sweep are the answers. Placement: the Records Wing camera replaces the right Records room's alarm guard (the level now has three guards); Quiet Entry's sweeps across the right lane. Both leave the strip along the wall under the lens as a readable blind spot.
 
 Awareness arcs around the crosshair (`src/game/awareness.ts`, drawn by `ThreatRing` in `App.tsx`) point to every guard or worker whose attention is on the player, by screen angle relative to camera yaw: amber suspicious or glancing, blue investigating or checking a colleague, orange radioing, red alert. Brightness follows suspicion or radio progress. Incapacitated observers drop out.
 
@@ -72,6 +75,7 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 16. Added the end-of-operation debrief with Ghost / Discreet / Compromised ratings and per-level personal bests.
 17. Guards pause at patrol ends and turn gradually instead of snapping 180°, after playtesting found players caught by instant reversals.
 18. Refactored spells into `src/game/spells/` modules with a shared registry; moved sounds to `audio.ts` and the awareness label to `awareness.ts`. No gameplay change, except that a Motor Lock which cuts off a radio call now says so (the old message was overwritten in the same frame).
+19. Added security cameras (replacing the Records Wing right-room alarm guard, plus one on the Quiet Entry right lane) and the Veil spell (X). Cameras flag instead of alarming; placements were tuned with coverage maps so each has timeable gaps and a blind strip under the lens.
 
 ## Code map and important invariants
 
@@ -88,6 +92,7 @@ The worker is unarmed. Sight builds recognition for roughly **0.7 s**; after tha
 | `src/game/Environment.tsx` | Renders `level.solids` as Rapier fixed colliders and meshes; also lights, signs, panel, extraction ring, route cues |
 | `src/game/GuardCharacter.tsx`, `WorkerCharacter.tsx` | Code-built NPC blockouts and animations; character rigid bodies carry identifiers used by Rapier targeting rays |
 | `src/game/debrief.ts` | Operation stats shape, rating rules, best-run comparison, time formatting |
+| `src/game/camera.ts`, `src/game/CameraRig.tsx` | Security camera sweep, sight and flagging (pure), and its model and floor footprint |
 | `src/game/awareness.ts` | Pure threat-indicator list and screen-angle math for the awareness arcs, plus the detection-meter label and the leading radio call |
 | `src/game/SenseMarker.tsx` | Life Sense overlay per NPC (depth-test-free silhouette, gaze line, view and focus cones); cones reuse the sight constants from `mechanics.ts` so the display matches detection |
 | `src/game/GuardFootsteps.ts` | Synthesized positional guard walking audio |
@@ -111,7 +116,7 @@ npm test
 npm run build
 ```
 
-Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **72 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
+Vite requests port **3000** and may select another port if occupied; use the URL it prints. Node **22.6+** is needed for the TypeScript-stripping test runner. `npm run build` includes TypeScript checking. At this handoff, `npm test` passes **81 tests** and `npm run build` passes. The build emits a large-chunk warning, but no error. Browser pointer lock may be unavailable inside an embedded preview; the **Use drag-look controls** fallback is intentional. No development server needs to remain running after verification.
 
 ## Prototype limits and useful next work
 

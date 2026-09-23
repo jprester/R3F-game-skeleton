@@ -3,7 +3,7 @@ import type { Level } from '../levels.ts';
 import type { Guard, SeekerFlight } from '../mechanics.ts';
 import type { Worker } from '../worker.ts';
 
-export type SpellId = 'motor' | 'blink' | 'seeker' | 'lure' | 'sense';
+export type SpellId = 'motor' | 'blink' | 'seeker' | 'lure' | 'sense' | 'veil';
 
 /** The character under the crosshair: the first physical ray hit, so walls block targeting. */
 export interface AimTarget { kind: 'guard' | 'worker'; index: number; npc: Guard | Worker; distance: number }
@@ -27,6 +27,7 @@ export interface SpellWorld {
   body: Vector3;
   eye: Vector3;
   seekerInFlight: boolean;
+  veiled: boolean;
 }
 
 /** What the encounter should present after a successful cast; game state is already applied. */
@@ -35,7 +36,8 @@ export type SpellEffect =
   | { kind: 'seeker'; flight: SeekerFlight }
   | { kind: 'lure'; point: Vector3 }
   | { kind: 'sense'; origin: Vector3 }
-  | { kind: 'blink'; destination: Vector3 };
+  | { kind: 'blink'; destination: Vector3 }
+  | { kind: 'veil' };
 export type CastResult = { cast: false; message: string } | { cast: true; message: string; effect: SpellEffect };
 
 export interface Spell {

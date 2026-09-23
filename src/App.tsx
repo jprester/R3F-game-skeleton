@@ -2,7 +2,8 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import Encounter, { HUD, initialHUD } from "./game/Encounter";
-import { LIFE_SENSE_COOLDOWN, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, SHOT_WINDUP, WARY_DURATION } from "./game/mechanics";
+import { LIFE_SENSE_COOLDOWN, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, SHOT_WINDUP, VEIL_BREAK_RANGE, VEIL_COOLDOWN, VEIL_DURATION, WARY_DURATION } from "./game/mechanics";
+import { CAMERA_DETECTION_TIME } from "./game/camera";
 import type { Threat } from "./game/awareness";
 import { SPELLS, type SpellId } from "./game/spells";
 import { formatTime, isBetterRun, rateOperation, RATINGS, type BestRun, type OperationStats } from "./game/debrief";
@@ -28,6 +29,7 @@ function Debrief({ hud, previous, newBest }: { hud: HUD; previous: BestRun | nul
     ["Times spotted", stats.spotted],
     ["Times noticed", stats.noticed],
     ["Radio reports", stats.reports],
+    ["Camera flags", stats.cameraFlags],
     ["Calls cut off", stats.callsCutOff],
     ["Hits taken", stats.hitsTaken],
     ["Restraints", stats.restraints],
@@ -50,13 +52,14 @@ function Debrief({ hud, previous, newBest }: { hud: HUD; previous: BestRun | nul
     </div>
   );
 }
-import { ANNEX_LEVEL, DEMO_LEVEL, type Level } from "./game/levels";
+import { ANNEX_LEVEL, LEVELS, type Level } from "./game/levels";
 import "./game/game.css";
 
 /** Ability bar status: an ongoing effect first, then the cooldown. */
 function spellStatus(hud: HUD, id: SpellId) {
   if (id === "seeker" && hud.seekerFlying) return "TRACKING";
   if (id === "sense" && hud.senseActive > 0) return "SENSING";
+  if (id === "veil" && hud.veiled > 0) return `VEILED ${hud.veiled.toFixed(1)}s`;
   return hud.cooldowns[id] > 0 ? `${hud.cooldowns[id].toFixed(1)}s` : "READY";
 }
 
@@ -153,7 +156,7 @@ export default function App() {
       </Canvas>
       <div className="topbar">
         <div>
-          <span className="eyebrow">WAYFARER / {level.id === 'demo' ? 'FIELD TRIAL 01' : 'OPERATION 01'}</span>
+          <span className="eyebrow">WAYFARER / {level.operation}</span>
           <h1>{level.name}</h1>
         </div>
         <span className="tag">{level.subtitle}</span>
@@ -170,7 +173,7 @@ export default function App() {
         <small>
           {hud.carrying
             ? "Use E inside the marked circle."
-            : level.id === 'demo' ? "Research chamber · beyond Operations" : "Vault · beyond the records wing"}
+            : level.objective}
         </small>
       </section>
       <div className="health" aria-label={`Vitality ${hud.health} of ${PLAYER_MAX_HEALTH}`}>
@@ -178,12 +181,13 @@ export default function App() {
         <div>{Array.from({ length: PLAYER_MAX_HEALTH }, (_, index) => <i key={index} className={index < hud.health ? "full" : ""} />)}</div>
         {/* Four segments match the four body points observers check: head, shoulders, torso. */}
         <div className={`visibility ${hud.exposure === 0 ? "unseen" : hud.exposure < 1 ? "partial" : "seen"}`}>
-          <span className="eyebrow">{hud.crouched ? "CROUCHED" : "STANDING"} · {hud.exposure === 0 ? "UNSEEN" : hud.exposure < 1 ? "PARTLY SEEN" : "SEEN"}</span>
+          <span className="eyebrow">{hud.crouched ? "CROUCHED" : "STANDING"} · {hud.veiled > 0 ? "VEILED" : hud.exposure === 0 ? "UNSEEN" : hud.exposure < 1 ? "PARTLY SEEN" : "SEEN"}</span>
           <div>{[0, 1, 2, 3].map(index => <b key={index} className={index < Math.round(hud.exposure * 4) ? "lit" : ""} />)}</div>
         </div>
       </div>
       {hud.locked && (
         <>
+          {hud.veiled > 0 && <div className="veil-overlay" style={{ opacity: Math.min(1, hud.veiled / .6) }} />}
           {hud.pulse && <div key={hud.pulse.id} className={`spell-pulse ${hud.pulse.kind}`} />}
           <ThreatRing threats={hud.threats} />
           <div className="crosshair">+</div>
@@ -216,7 +220,7 @@ export default function App() {
         </div>
         <p>
           WASD move · {dragLook ? "Right-drag look" : "Mouse look"} · Shift quiet
-          · C crouch · V sense · Space jump · E interact · M {hud.muted ? 'unmute' : 'mute'} · Esc pause
+          · C crouch · V sense · X veil · Space jump · E interact · M {hud.muted ? 'unmute' : 'mute'} · Esc pause
         </p>
       </div>
       {!hud.locked && (
@@ -243,20 +247,21 @@ export default function App() {
                 ? "The annex is behind you. Debrief:"
                 : hud.status === "failed"
                   ? hud.failureReason === 'worker'
-                    ? "The office worker completed a report at the Research alarm panel. Immobilize them or leave before the countdown ends."
+                    ? "The worker completed a report at the alarm panel. Immobilize them or leave before the countdown ends."
                     : hud.failureReason === 'shot'
                       ? "The armed guard had a clear shot. Break sight before they fire, Blink behind cover, or immobilize them."
                       : hud.failureReason === 'fall'
                         ? "The arrival point was lost. Choose clear floor before using Blink."
                         : "A guard completed an alarm call. Break sightlines or immobilize them before the call finishes."
-                  : level.id === 'demo'
-                    ? "Enter the test office, recover the transit core from Research, and return here. Two guards and an office worker stand between you and the objective."
-                    : "Enter the records wing, take the direct security route on the left or the longer covered service route on the right, recover the core from the vault, and return here. Armed guards hold the left; alarm guards patrol the right."}
+                  : level.brief}
             </p>
             {hud.status !== "playing" && <Debrief hud={hud} previous={best.previous} newBest={best.newBest} />}
             <div className="level-picker" aria-label="Select level">
-              <button className={level.id === 'annex' ? 'selected' : ''} onClick={() => chooseLevel(ANNEX_LEVEL)}>Records wing <small>Mission</small></button>
-              <button className={level.id === 'demo' ? 'selected' : ''} onClick={() => chooseLevel(DEMO_LEVEL)}>Quiet entry <small>Mechanics demo</small></button>
+              {LEVELS.map(option => (
+                <button key={option.id} className={level.id === option.id ? 'selected' : ''} onClick={() => chooseLevel(option)}>
+                  {option.name.charAt(0).toUpperCase() + option.name.slice(1)} <small>{option.kind}</small>
+                </button>
+              ))}
             </div>
             <button onClick={hud.status === "playing" ? start : restart}>
               {hud.status === "playing"
@@ -302,6 +307,18 @@ export default function App() {
                   through walls for {LIFE_SENSE_DURATION} seconds, with where they are
                   looking: the bright cone is where they spot you fastest. Cooldown:{" "}
                   {LIFE_SENSE_COOLDOWN} seconds.
+                </p>
+                <p>
+                  <b>X / Veil</b> For {VEIL_DURATION} seconds, guards, the worker and
+                  cameras overlook you. Anyone who can see you within{" "}
+                  {VEIL_BREAK_RANGE} metres notices and breaks it, and casting another
+                  spell drops it. Cooldown: {VEIL_COOLDOWN} seconds.
+                </p>
+                <p>
+                  <b>Security cameras</b> Sweep a narrow cone, drawn on the floor, and
+                  see over low cover from the ceiling. {CAMERA_DETECTION_TIME} seconds in
+                  view flags you: no alarm, but the nearest guard comes to check and
+                  security turns wary.
                 </p>
                 <p>
                   <b>Awareness arcs</b> Arcs around the crosshair point to anyone

@@ -6,8 +6,9 @@ import Environment from './Environment';
 import GuardCharacter from './GuardCharacter';
 import { GuardFootsteps } from './GuardFootsteps';
 import WorkerCharacter from './WorkerCharacter';
-import { advanceFootsteps, advanceSeeker, canGuardHit, clearSight, createGuards, CROUCH_EYE_OFFSET, CROUCH_SPEED, hearFootstep, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, lockGuard, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, RESTRAIN_RANGE, RESTRAIN_TIME, restrainGuard, safeFloor, SEEKER_LOCK_DURATION, SEEKER_RANGE, STAND_EYE_OFFSET, type Gait, type Guard, type RadioCall, type SeekerFlight } from './mechanics';
-import { createSecurity, updateSecurity } from './security';
+import { advanceFootsteps, advanceSeeker, canGuardHit, clearSight, createGuards, CROUCH_EYE_OFFSET, CROUCH_SPEED, hearFootstep, LIFE_SENSE_DURATION, LIFE_SENSE_RANGE, lockGuard, PLAYER_MAX_HEALTH, RADIO_CALL_TIME, RESTRAIN_RANGE, RESTRAIN_TIME, restrainGuard, safeFloor, SEEKER_LOCK_DURATION, SEEKER_RANGE, STAND_EYE_OFFSET, VEIL_DURATION, type Gait, type Guard, type RadioCall, type SeekerFlight } from './mechanics';
+import { createSecurity, updateSecurity, veilPierced } from './security';
+import CameraRig from './CameraRig';
 import { awarenessLabel, leadingCall, threats, type Threat } from './awareness';
 import { createStats, type OperationStats } from './debrief';
 import { playCue, playLure, playShot, type CueKind } from './audio';
@@ -24,6 +25,8 @@ export interface HUD {
   /** Seconds until each spell is ready again. */
   cooldowns: Record<SpellId, number>;
   senseActive: number; seekerFlying: boolean; suspicion: number; alarm: number;
+  /** Seconds of Veil left. */
+  veiled: number;
   health: number; shotWindup: number;
   /** Progress (0–1) of the Restraint currently being applied. */
   restrain: number;
@@ -39,7 +42,7 @@ export interface HUD {
   /** Running tally for the end-of-operation debrief. */
   stats: OperationStats;
 }
-export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, cooldowns: createCooldowns(), senseActive: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, restrain: 0, radio: 0, radioReason: null, wary: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false, crouched: false, exposure: 0, threats: [], stats: createStats() };
+export const initialHUD: HUD = { locked: false, status: 'playing', carrying: false, failureReason: null, cooldowns: createCooldowns(), senseActive: 0, veiled: 0, seekerFlying: false, suspicion: 0, alarm: 0, health: PLAYER_MAX_HEALTH, shotWindup: 0, restrain: 0, radio: 0, radioReason: null, wary: 0, workerMode: 'working', workerReport: 0, message: '', target: '', elapsed: 0, awareness: '', pulse: null, muted: false, crouched: false, exposure: 0, threats: [], stats: createStats() };
 
 /** Enough tracers for every armed guard in a level to fire in the same frame. */
 const TRACER_POOL = 4;
@@ -63,7 +66,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
   const artifactMesh = useRef<Mesh>(null);
   const guards = useRef(createGuards(level));
   const worker = useRef(createWorker(level));
-  const security = useRef(createSecurity());
+  const security = useRef(createSecurity(level));
   const restraint = useRef<{ target: Guard | Worker | null; progress: number }>({ target: null, progress: 0 });
   const radioActive = useRef(guards.current.map(() => false));
   const previousModes = useRef(guards.current.map(g => g.mode));
@@ -206,6 +209,13 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       g.elapsed += dt;
       for (const spell of SPELLS) g.cooldowns[spell.id] = Math.max(0, g.cooldowns[spell.id] - dt);
       senseState.current.time = Math.max(0, senseState.current.time - dt);
+      g.veiled = Math.max(0, g.veiled - dt);
+      // Veil suppresses attention, not presence: someone close who can see you notices.
+      if (g.veiled > 0 && veilPierced(guards.current, worker.current, camera.position, state.crouch, level)) {
+        g.veiled = 0;
+        cue('veilBroken');
+        say('Veil broken · someone close looked right at you');
+      }
       g.messageTime -= dt; if (g.messageTime <= 0) g.message = '';
       const movement = new Vector3(Number(state.keys.has('KeyD')) - Number(state.keys.has('KeyA')), 0, Number(state.keys.has('KeyS')) - Number(state.keys.has('KeyW')));
       movement.normalize().applyAxisAngle(new Vector3(0, 1, 0), state.yaw).multiplyScalar(state.crouch ? CROUCH_SPEED : state.keys.has('ShiftLeft') ? 2 : 3.6);
@@ -226,7 +236,13 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         for (const guard of guards.current) hearFootstep(guard, new Vector3(position.x, 0, position.z), gait, level);
       }
       const beforeWindups = guards.current.map(guard => guard.shotWindup);
-      const events = updateSecurity(guards.current, worker.current, camera.position, dt, level, security.current, state.crouch);
+      const events = updateSecurity(guards.current, worker.current, camera.position, dt, level, security.current, { crouched: state.crouch, veiled: g.veiled > 0 });
+      for (const flag of events.cameraFlags) {
+        g.stats.cameraFlags++;
+        g.stats.reports++;
+        cue('radioDone');
+        say(flag.dispatched >= 0 ? 'Camera flagged you · a guard is coming to check' : 'Camera flagged you · security is wary');
+      }
       shots.push(...events.shots);
       g.stats.reports += events.reports.length;
       for (const report of events.reports) {
@@ -256,7 +272,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
         if (guard.mode === 'alert' && before !== 'alert') { cue('alert'); g.stats.spotted++; }
         previousModes.current[index] = guard.mode;
       });
-      updateWorker(worker.current, camera.position, dt, level, state.crouch);
+      updateWorker(worker.current, camera.position, dt, level, state.crouch, g.veiled > 0);
       if (worker.current.mode === 'noticed' && previousWorkerMode.current === 'working') { cue('notice'); g.stats.noticed++; }
       if (worker.current.witnessed && !workerWitnessed.current) g.stats.spotted++;
       workerWitnessed.current = worker.current.witnessed;
@@ -341,6 +357,10 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
           senseState.current = { time: LIFE_SENSE_DURATION, origin: effect.origin };
           cue('sense');
           break;
+        case 'veil':
+          g.veiled = VEIL_DURATION;
+          cue('veil');
+          break;
         case 'blink':
           body.setTranslation({ x: effect.destination.x, y: .92, z: effect.destination.z }, true);
           lastPlayerPosition.current.set(effect.destination.x, .92, effect.destination.z);
@@ -352,13 +372,16 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     if (active && state.casts.size > 0) {
       const spellWorld: SpellWorld = {
         guards: guards.current, worker: worker.current, level,
-        body: new Vector3(position.x, 0, position.z), eye: camera.position.clone(), seekerInFlight: !!seekerFlight.current,
+        body: new Vector3(position.x, 0, position.z), eye: camera.position.clone(), seekerInFlight: !!seekerFlight.current, veiled: g.veiled > 0,
       };
       for (const spell of SPELLS) {
         if (!state.casts.has(spell.id)) continue;
         const result = tryCast(spell, g.cooldowns, aim, spellWorld);
-        say(result.message);
-        if (!result.cast) continue;
+        if (!result.cast) { say(result.message); continue; }
+        // Acting draws attention: any other spell drops an active Veil.
+        const dropsVeil = spell.id !== 'veil' && g.veiled > 0;
+        if (dropsVeil) g.veiled = 0;
+        say(dropsVeil ? `${result.message} · Veil dropped` : result.message);
         pulse(spell.id);
         present(result.effect);
       }
@@ -371,7 +394,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     if (active && state.interact && !canRestrain) {
       if (nearArtifact && !g.carrying) { g.carrying = true; cue('core'); say('Core secured. Return to the insertion point.'); }
       else if (atExit && g.carrying) g.status = 'success';
-      else say(g.carrying ? 'Return to the marked extraction circle.' : 'Find the transit core in Research.');
+      else say(g.carrying ? 'Return to the marked extraction circle.' : level.coreHint);
     }
     for (const shooter of shots) {
       sound(context => playShot(context, shooter.position));
@@ -403,7 +426,8 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
       }
     }
     if (artifactMesh.current) { artifactMesh.current.visible = !g.carrying; if (active) artifactMesh.current.rotation.y += dt * .5; }
-    g.suspicion = Math.max(worker.current.suspicion, ...guards.current.map(v => v.suspicion));
+    const cameras = security.current.cameras;
+    g.suspicion = Math.max(worker.current.suspicion, ...guards.current.map(v => v.suspicion), ...cameras.map(c => c.suspicion));
     g.alarm = Math.max(...guards.current.map(v => v.alarm));
     g.shotWindup = Math.max(...guards.current.map(v => v.shotWindup));
     const call = leadingCall(guards.current);
@@ -413,10 +437,10 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     g.workerMode = worker.current.mode;
     g.crouched = state.crouch;
     g.senseActive = senseState.current.time;
-    g.threats = threats(guards.current, worker.current, camera.position, state.yaw);
-    g.exposure = Math.max(worker.current.exposure, ...guards.current.map(v => v.exposure));
+    g.threats = threats(guards.current, worker.current, camera.position, state.yaw, cameras);
+    g.exposure = Math.max(worker.current.exposure, ...guards.current.map(v => v.exposure), ...cameras.map(c => c.exposure));
     g.workerReport = worker.current.report;
-    g.awareness = awarenessLabel(guards.current, worker.current, security.current.wary);
+    g.awareness = awarenessLabel(guards.current, worker.current, security.current.wary, cameras);
     if (g.alarm >= 3 && g.status === 'playing') { g.status = 'failed'; g.failureReason = 'guard'; }
     if (g.workerReport >= WORKER_CALL_DURATION && g.status === 'playing') { g.status = 'failed'; g.failureReason = 'worker'; say('The office worker reported the intrusion.'); }
     if (g.status !== 'playing' && dragLook) onPause();
@@ -432,6 +456,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     </RigidBody>
     {guards.current.map((guard, index) => <GuardCharacter key={index} guard={guard} index={index} sense={senseState} />)}
     <WorkerCharacter worker={worker.current} sense={senseState} />
+    {security.current.cameras.map((securityCamera, index) => <CameraRig key={index} camera={securityCamera} />)}
     <mesh ref={senseWave} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.97, 1, 64]} /><meshBasicMaterial color="#cfe6ec" transparent opacity={0} depthWrite={false} /></mesh>
     <mesh ref={preview} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.3, .38, 40]} /><meshBasicMaterial color="#b9e2e5" /></mesh>
     <mesh ref={lurePreview} rotation={[-Math.PI / 2, 0, 0]} visible={false}><ringGeometry args={[.46, .5, 40]} /><meshBasicMaterial color="#d9ba83" transparent opacity={.75} depthWrite={false} /></mesh>

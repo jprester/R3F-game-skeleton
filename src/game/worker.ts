@@ -48,7 +48,7 @@ export function restrainWorker(worker: Worker) {
   return true;
 }
 
-export function updateWorker(worker: Worker, player: Vector3, dt: number, level: Level = DEMO_LEVEL, crouched = false) {
+export function updateWorker(worker: Worker, player: Vector3, dt: number, level: Level = DEMO_LEVEL, crouched = false, veiled = false) {
   worker.exposure = 0;
   if (worker.restrained) return;
   if (worker.locked > 0) {
@@ -59,7 +59,7 @@ export function updateWorker(worker: Worker, player: Vector3, dt: number, level:
   }
   if (!worker.witnessed) {
     const eye = worker.position.clone().add(new Vector3(0, 1.55, 0));
-    worker.exposure = playerExposure(eye, worker.facing, player, crouched, level);
+    worker.exposure = veiled ? 0 : playerExposure(eye, worker.facing, player, crouched, level);
     const rate = sightRate(eye, worker.facing, player, crouched, level, worker.exposure);
     if (rate > 0) {
       worker.suspicion = Math.min(1, worker.suspicion + dt * rate / .7);

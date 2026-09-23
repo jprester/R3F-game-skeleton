@@ -6,7 +6,7 @@ const CUES = {
   motor: [560, 230, .22, .055], blink: [155, 410, .24, .06],
   core: [330, 660, .42, .035], seeker: [720, 340, .3, .04],
   panic: [480, 760, .3, .04], report: [680, 520, .35, .05], aim: [350, 490, .21, .035],
-  radio: [1250, 1180, .12, .018], radioDone: [900, 620, .26, .03], restrain: [300, 120, .5, .06], sense: [200, 95, .7, .045],
+  radio: [1250, 1180, .12, .018], radioDone: [900, 620, .26, .03], restrain: [300, 120, .5, .06], sense: [200, 95, .7, .045], veil: [140, 250, .6, .04], veilBroken: [420, 210, .3, .045],
 } as const;
 export type CueKind = keyof typeof CUES;
 

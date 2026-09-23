@@ -1,6 +1,11 @@
 import type { Vector3 } from 'three';
 import { RADIO_CALL_TIME, type Guard, type RadioCall } from './mechanics.ts';
 import type { Worker } from './worker.ts';
+import { CAMERA_RESET, type SecurityCamera } from './camera.ts';
+
+/** A camera shows as dispatching for this long after it flags the player. */
+const CAMERA_FLAG_SHOWN = 2;
+const cameraFlagging = (camera: SecurityCamera) => camera.reset > CAMERA_RESET - CAMERA_FLAG_SHOWN;
 
 /** Most urgent first: alert beats an active radio call beats an investigation beats a glance. */
 export type ThreatState = 'alert' | 'radio' | 'investigating' | 'suspicious';
@@ -31,8 +36,14 @@ function workerThreat(w: Worker): Omit<Threat, 'id' | 'angle'> | null {
   return null;
 }
 
-/** One screen-edge indicator per guard or worker whose attention is on the player, wherever they are. */
-export function threats(guards: Guard[], worker: Worker, from: Vector3, yaw: number): Threat[] {
+function cameraThreat(camera: SecurityCamera): Omit<Threat, 'id' | 'angle'> | null {
+  if (cameraFlagging(camera)) return { state: 'radio', level: 1 };
+  if (camera.suspicion > .01) return { state: 'suspicious', level: Math.max(.15, camera.suspicion) };
+  return null;
+}
+
+/** One screen-edge indicator per guard, worker or camera whose attention is on the player, wherever they are. */
+export function threats(guards: Guard[], worker: Worker, from: Vector3, yaw: number, cameras: SecurityCamera[] = []): Threat[] {
   const list: Threat[] = [];
   guards.forEach((g, index) => {
     const threat = guardThreat(g);
@@ -40,6 +51,10 @@ export function threats(guards: Guard[], worker: Worker, from: Vector3, yaw: num
   });
   const threat = workerThreat(worker);
   if (threat) list.push({ id: 'worker', angle: screenAngle(from, yaw, worker.position), ...threat });
+  cameras.forEach((camera, index) => {
+    const threat = cameraThreat(camera);
+    if (threat) list.push({ id: `camera-${index}`, angle: screenAngle(from, yaw, camera.position), ...threat });
+  });
   return list;
 }
 
@@ -48,18 +63,20 @@ export const leadingCall = (guards: Guard[]) =>
   guards.reduce<RadioCall | null>((best, g) => g.radio && (!best || g.radio.time > best.time) ? g.radio : best, null);
 
 /** The single most urgent security state, for the label above the detection meter. */
-export function awarenessLabel(guards: Guard[], worker: Worker, wary: number) {
+export function awarenessLabel(guards: Guard[], worker: Worker, wary: number, cameras: SecurityCamera[] = []) {
   const call = leadingCall(guards);
   const investigating = (clue: 'lastSeen' | 'lastHeard') => guards.some(g => (g.mode === 'investigate' || g.mode === 'search') && g[clue]);
   return guards.some(g => g.alarm > 0) ? 'ALARM CALL' :
     worker.mode === 'calling' ? 'WORKER REPORT' :
     call ? (call.reason === 'contact' ? 'RADIO · CONTACT REPORT' : call.reason === 'attacked' ? 'RADIO · GUARD REPORTING ATTACK' : 'RADIO · COLLEAGUE DOWN') :
+    cameras.some(cameraFlagging) ? 'CAMERA FLAG · GUARD SENT TO CHECK' :
     worker.mode === 'fleeing' ? 'WORKER RUNNING TO ALARM' :
     guards.some(g => g.mode === 'alert') ? 'CONTACT CONFIRMED' :
     guards.some(g => g.mode === 'check') ? 'GUARD CHECKING A COLLEAGUE' :
     investigating('lastSeen') ? 'INVESTIGATING LAST CONTACT' :
     investigating('lastHeard') ? 'INVESTIGATING A SOUND' :
     guards.some(g => g.mode === 'suspicious') ? 'SECURITY ATTENTION' :
+    cameras.some(camera => camera.suspicion > .01) ? 'CAMERA TRACKING' :
     worker.mode === 'noticed' ? 'WORKER NOTICED MOVEMENT' :
     wary > 0 ? 'SECURITY WARY' : '';
 }

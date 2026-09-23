@@ -3,12 +3,13 @@ import { echoLure } from './echoLure.ts';
 import { lifeSense } from './lifeSense.ts';
 import { motorLock } from './motorLock.ts';
 import { seekerCrystal } from './seekerCrystal.ts';
+import { veil } from './veil.ts';
 import type { Aim, CastResult, Spell, SpellId, SpellWorld } from './types.ts';
 
 export * from './types.ts';
 
 /** Every spell, in HUD order. Adding a spell means a new module and a line here. */
-export const SPELLS: readonly Spell[] = [motorLock, blink, seekerCrystal, echoLure, lifeSense];
+export const SPELLS: readonly Spell[] = [motorLock, blink, seekerCrystal, echoLure, lifeSense, veil];
 
 export const createCooldowns = (): Record<SpellId, number> =>
   Object.fromEntries(SPELLS.map(spell => [spell.id, 0])) as Record<SpellId, number>;
