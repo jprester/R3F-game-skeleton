@@ -394,7 +394,7 @@ export default function Encounter({ onHUD, dragLook, onPause, audio, level }: { 
     if (active && state.interact && !canRestrain) {
       if (nearArtifact && !g.carrying) { g.carrying = true; cue('core'); say('Core secured. Return to the insertion point.'); }
       else if (atExit && g.carrying) g.status = 'success';
-      else say(g.carrying ? 'Return to the marked extraction circle.' : 'Find the transit core in Research.');
+      else say(g.carrying ? 'Return to the marked extraction circle.' : level.coreHint);
     }
     for (const shooter of shots) {
       sound(context => playShot(context, shooter.position));

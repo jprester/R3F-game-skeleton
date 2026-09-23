@@ -1,14 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { ANNEX_LEVEL, DEMO_LEVEL } from '../src/game/levels.ts';
+import { ANNEX_LEVEL, DEMO_LEVEL, TOWER_LEVEL } from '../src/game/levels.ts';
+import { CAMERA_OPTICS, createCameras, updateCamera } from '../src/game/camera.ts';
 import { clearSight, createGuards, pathTo, playerExposure, safeFloor, updateGuard } from '../src/game/mechanics.ts';
 import { createWorker, updateWorker, WORKER_CALL_DURATION } from '../src/game/worker.ts';
 
 const v = ([x, y, z]) => new Vector3(x, y, z);
 
 test('both levels keep their entrance, NPC starts, and alarm destination clear', () => {
-  for (const level of [DEMO_LEVEL, ANNEX_LEVEL]) {
+  for (const level of [DEMO_LEVEL, ANNEX_LEVEL, TOWER_LEVEL]) {
     assert.ok(safeFloor(v(level.spawn), level), `${level.id} entrance`);
     for (const guard of createGuards(level)) {
       for (const stop of guard.route) assert.ok(safeFloor(stop, level), `${level.id} guard stop`);
@@ -21,7 +22,7 @@ test('both levels keep their entrance, NPC starts, and alarm destination clear',
 });
 
 test('guard patrols never pass through furniture', () => {
-  for (const level of [DEMO_LEVEL, ANNEX_LEVEL]) {
+  for (const level of [DEMO_LEVEL, ANNEX_LEVEL, TOWER_LEVEL]) {
     for (const guard of createGuards(level)) {
       const [a, b] = guard.route;
       for (let i = 0; i <= 20; i++) {
@@ -80,4 +81,55 @@ test('the mission starts safe and the vault worker can reach and use the alarm',
   for (let i = 0; i < 400 && worker.report < WORKER_CALL_DURATION; i++) updateWorker(worker, witness, .05, level);
   assert.equal(worker.mode, 'calling');
   assert.equal(worker.report, WORKER_CALL_DURATION);
+});
+
+test('the tower insertion point is safe from every guard, the sysadmin and both cameras', () => {
+  const level = TOWER_LEVEL;
+  const player = new Vector3(level.spawn[0], 1.56, level.spawn[2]);
+  const guards = createGuards(level), worker = createWorker(level), cameras = createCameras(level);
+  for (let t = 0; t < 120; t += .05) {
+    for (const guard of guards) updateGuard(guard, player, .05, level);
+    updateWorker(worker, player, .05, level);
+    for (const camera of cameras) assert.equal(updateCamera(camera, player, .05, level), false);
+    assert.ok(guards.every(g => g.suspicion === 0) && worker.suspicion === 0 && cameras.every(c => c.exposure === 0), `noticed at ${t.toFixed(2)} s`);
+  }
+});
+
+test('the tower offers two routes to the core: east past both armed guards, west away from them', () => {
+  const level = TOWER_LEVEL;
+  const spawn = v(level.spawn).setY(0), core = new Vector3(-10.3, 0, -17.2);
+  const legs = (...points) => points.slice(1).map((p, i) => pathTo(points[i], p, level));
+  const east = legs(spawn, new Vector3(9.5, 0, -15.5), new Vector3(-1.5, 0, -18), core);
+  const west = legs(spawn, new Vector3(-4, 0, 6.5), new Vector3(-6, 0, -15.5), core);
+  for (const route of [east, west]) assert.ok(route.every(leg => leg.length > 0 && leg.every(p => safeFloor(p, level))), 'route connects over clear floor');
+  // Sample the walked path, and measure distance to each armed guard's patrol segment.
+  const walked = route => { const points = []; let at = spawn; for (const p of route.flat()) { for (let t = 0; t <= 1; t += .1) points.push(at.clone().lerp(p, t)); at = p; } return points; };
+  const toSegment = (p, a, b) => { const ab = b.clone().sub(a); const t = Math.max(0, Math.min(1, p.clone().sub(a).dot(ab) / ab.lengthSq())); return p.distanceTo(a.clone().addScaledVector(ab, t)); };
+  const armedLanes = createGuards(level).filter(g => g.armed).map(g => g.route);
+  assert.ok(armedLanes.every(([a, b]) => walked(east).some(p => toSegment(p, a, b) < 1.5)), 'east passes both armed guards');
+  assert.ok(!walked(west).some(p => armedLanes.some(([a, b]) => toSegment(p, a, b) < 1.5)), 'west avoids the armed lanes');
+  assert.ok(clearSight(new Vector3(-10.3, 1.56, -17.2), v(level.artifact), level), 'core visible from its pickup spot');
+});
+
+test('tower cameras watch the office entry and the server-room approach part of the time, and leave the middle quiet', () => {
+  const level = TOWER_LEVEL;
+  const cameras = createCameras(level);
+  const facings = [];
+  for (let t = 0; t < 30; t += .1) { for (const c of cameras) updateCamera(c, new Vector3(0, -50, 0), .1, level); facings.push(cameras.map(c => c.facing)); }
+  const watched = (x, z) => {
+    const p = new Vector3(x, 1.56, z);
+    return facings.filter(f => cameras.some((c, i) => playerExposure(c.position, f[i], p, false, level, CAMERA_OPTICS) > 0)).length / facings.length;
+  };
+  for (const [x, z] of [[-4, 6.8], [-6, -12]]) {
+    const share = watched(x, z);
+    assert.ok(share > .1 && share < .6, `(${x}, ${z}) watched ${Math.round(share * 100)}% of the time`);
+  }
+  assert.equal(watched(-5, -3), 0, 'the middle of the office is left to the guard');
+});
+
+test('the sysadmin watches the open-office door but not the security door', () => {
+  const worker = createWorker(TOWER_LEVEL);
+  const eye = worker.position.clone().setY(1.55);
+  assert.ok(playerExposure(eye, worker.facing, new Vector3(-6, 1.56, -15), false, TOWER_LEVEL) > 0);
+  assert.equal(playerExposure(eye, worker.facing, new Vector3(-1.2, 1.56, -18), false, TOWER_LEVEL), 0);
 });
